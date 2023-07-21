@@ -2,7 +2,10 @@ module github.com/tailscale/setec
 
 go 1.20
 
-require tailscale.com v1.1.1-0.20230720005356-efd6d90dd719
+require (
+	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
+	tailscale.com v1.1.1-0.20230720005356-efd6d90dd719
+)
 
 require (
 	filippo.io/edwards25519 v1.0.0 // indirect
