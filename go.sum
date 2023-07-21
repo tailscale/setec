@@ -168,6 +168,8 @@ github.com/tailscale/golang-x-crypto v0.0.0-20230713185742-f0b76a10a08e h1:JyeJF
 github.com/tailscale/golang-x-crypto v0.0.0-20230713185742-f0b76a10a08e/go.mod h1:DjoeCULdP6vTJ/xY+nzzR9LaUHprkbZEpNidX0aqEEk=
 github.com/tailscale/goupnp v1.0.1-0.20210804011211-c64d0f06ea05 h1:4chzWmimtJPxRs2O36yuGRW3f9SYV+bMTTvMBI0EKio=
 github.com/tailscale/goupnp v1.0.1-0.20210804011211-c64d0f06ea05/go.mod h1:PdCqy9JzfWMJf1H5UJW2ip33/d4YkoKN0r67yKH1mG8=
+github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a h1:SJy1Pu0eH1C29XwJucQo73FrleVK6t4kYz4NVhp34Yw=
+github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a/go.mod h1:DFSS3NAGHthKo1gTlmEcSBiZrRJXi28rLNd/1udP1c8=
 github.com/tailscale/netlink v1.1.1-0.20211101221916-cabfb018fe85 h1:zrsUcqrG2uQSPhaUPjUQwozcRdDdSxxqhNgNZ3drZFk=
 github.com/tailscale/netlink v1.1.1-0.20211101221916-cabfb018fe85/go.mod h1:NzVQi3Mleb+qzq8VmcWpSkcSYxXIg0DkI6XDzpVkhJ0=
 github.com/tailscale/wireguard-go v0.0.0-20230710185534-bb2c8f22eccf h1:bHQHwIHId353jAF2Lm0cGDjJpse/PYS0I0DTtihL9Ls=
