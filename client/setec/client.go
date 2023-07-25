@@ -8,6 +8,8 @@ package setec
 import (
 	"context"
 	"errors"
+
+	"github.com/tailscale/setec/types/api"
 )
 
 // Store is a store that provides named secrets.
@@ -65,22 +67,22 @@ type Client struct {
 
 // List fetches a list of secrets and associated metadata (but not the
 // secret values themselves).
-func (c *Client) List(ctx context.Context) ([]*SecretInfo, error) {
+func (c *Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
 // Get fetches a secret value by name.
-func (c *Client) Get(ctx context.Context, name string) ([]*SecretValue, error) {
+func (c *Client) Get(ctx context.Context, name string) ([]*api.SecretValue, error) {
 	return nil, errors.New("not implemented")
 }
 
 // Get fetches a secret value by name and version.
-func (c *Client) GetVersion(ctx context.Context, name string, version uint32) ([]*SecretValue, error) {
+func (c *Client) GetVersion(ctx context.Context, name string, version uint32) ([]*api.SecretValue, error) {
 	return nil, errors.New("not implemented")
 }
 
 // Info fetches metadata for a given secret name.
-func (c *Client) Info(ctx context.Context, name string) (*SecretInfo, error) {
+func (c *Client) Info(ctx context.Context, name string) (*api.SecretInfo, error) {
 	return nil, errors.New("not implemented")
 }
 
@@ -95,28 +97,4 @@ func (c *Client) Put(ctx context.Context, name string, value []byte) (version ui
 // name to version.
 func (c *Client) SetActiveVersion(ctx context.Context, name string, version uint32) error {
 	return errors.New("not implemented")
-}
-
-// Secret is a secret value and its associated version.
-//
-// Versions are a positive integer assigned by the secrets server when
-// secrets are created or updated. Successive updates to a secret
-// return a higher version than before, so the versions can be used as
-// a chronological order of secret values.
-type SecretValue struct {
-	Value   []byte
-	Version uint32
-}
-
-// SecretInfo is information about a named secret.
-//
-// A secret has one or more versions (think: updating the API key used
-// to talk to a service). One of the versions is always marked
-// "active", and is the version served to clients that request a
-// secret without providing an explicit version. Inactive secret
-// versions can be deleted.
-type SecretInfo struct {
-	Name          string
-	Versions      []uint32
-	ActiveVersion uint32
 }
