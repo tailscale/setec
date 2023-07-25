@@ -4,6 +4,8 @@ go 1.20
 
 require (
 	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
+	github.com/tink-crypto/tink-go/v2 v2.0.0
+	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
 	tailscale.com v1.1.1-0.20230720005356-efd6d90dd719
 )
 
@@ -70,8 +72,7 @@ require (
 	go4.org/mem v0.0.0-20220726221520-4f986261bf13 // indirect
 	go4.org/netipx v0.0.0-20230303233057-f1b76eb4bb35 // indirect
 	golang.org/x/crypto v0.11.0 // indirect
-	golang.org/x/exp v0.0.0-20230425010034-47ecfdc1ba53 // indirect
-	golang.org/x/mod v0.10.0 // indirect
+	golang.org/x/mod v0.11.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/sync v0.2.0 // indirect
 	golang.org/x/sys v0.10.0 // indirect
