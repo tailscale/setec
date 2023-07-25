@@ -65,8 +65,8 @@ type Client struct {
 	Server string
 }
 
-// List fetches a list of secrets and associated metadata (but not the
-// secret values themselves).
+// List fetches a list of secret names and associated metadata (but
+// not the secret values themselves).
 func (c *Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
 	return nil, errors.New("not implemented")
 }
