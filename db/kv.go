@@ -84,8 +84,8 @@ type secret struct {
 	// Versions maps all currently known versions to the corresponding
 	// values.
 	//
-	// N.B.: We rely on api.SecretVersion being a type encoding/json will
-	// translate to a JSON string (currently an integer).
+	// We rely on api.SecretVersion being a type encoding/json will translate to
+	// a JSON string (currently an integer).
 	Versions map[api.SecretVersion][]byte
 	// ActiveVersion is the secret version that gets returned to
 	// clients who don't ask for a specific version of the secret.
