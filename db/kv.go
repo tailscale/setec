@@ -53,18 +53,21 @@ const databaseSchemaVersion = 1
 // in which the keys are the secret names and the values are secret blobs:
 //
 //	{
-//	   "secret1": {
+//	  "Secrets": {
+//	    "secret1": {
 //	      "Versions": {
-//	          "1": "<secret-1-value-base64>",
-//	          "2": "<secret-2-value-base64>"
+//	        "1": "<secret-1-value-base64>",
+//	        "2": "<secret-2-value-base64>"
 //	      },
 //	      "ActiveVersion": "1",
 //	      "LatestVersion": "2"
-//	   },
-//	   "secret2": {
+//	    },
+//
+//	    "secret2": {
 //	      ...
-//	   },
-//	   ...
+//	    },
+//	    ...
+//	  }
 //	}
 type kv struct {
 	path string
