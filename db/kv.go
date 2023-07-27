@@ -8,11 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 	"io/fs"
 	"os"
 	"sort"
+
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/aead"
@@ -38,6 +39,33 @@ func aeadContextDB(version uint32) []byte {
 const databaseSchemaVersion = 1
 
 // kv is an encrypted, transactional key/value store.
+//
+// On disk, the store is encoded as a JSON object with an unencrypted wrapper
+// inside which the secrets are packaged as an AEAD encrypted blob:
+//
+//	{
+//	   "Version": 1,
+//	   "DEK": "<data-encryption-key-base64>",
+//	   "DB": "<encrypted-secrets-base64>"
+//	}
+//
+// The contents of "DB" prior to encryption are a JSON-encoded persist object,
+// in which the keys are the secret names and the values are secret blobs:
+//
+//	{
+//	   "secret1": {
+//	      "Versions": {
+//	          "1": "<secret-1-value-base64>",
+//	          "2": "<secret-2-value-base64>"
+//	      },
+//	      "ActiveVersion": "1",
+//	      "LatestVersion": "2"
+//	   },
+//	   "secret2": {
+//	      ...
+//	   },
+//	   ...
+//	}
 type kv struct {
 	path string
 
@@ -55,6 +83,9 @@ type kv struct {
 type secret struct {
 	// Versions maps all currently known versions to the corresponding
 	// values.
+	//
+	// We rely on api.SecretVersion being a type encoding/json will translate to
+	// a JSON string (currently an integer).
 	Versions map[api.SecretVersion][]byte
 	// ActiveVersion is the secret version that gets returned to
 	// clients who don't ask for a specific version of the secret.
