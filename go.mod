@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/google/go-cmp v0.5.9
+	github.com/peterbourgon/ff/v3 v3.3.0
 	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
 	github.com/tink-crypto/tink-go/v2 v2.0.0
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
