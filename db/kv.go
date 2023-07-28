@@ -117,7 +117,7 @@ type wrapped struct {
 
 func openOrCreateKV(path string, kek tink.AEAD) (*kv, error) {
 	bs, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrExist) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return newKV(path, kek)
 	} else if err != nil {
 		return nil, err
