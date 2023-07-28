@@ -282,32 +282,32 @@ func TestGet(t *testing.T) {
 		seen[ver] = s
 	}
 
-	bs, err := d.DB.Get("test", from)
+	sec, err := d.DB.Get("test", from)
 	if err != nil {
 		t.Fatalf("getting secret: %v", err)
 	}
-	if want := []byte("0"); !bytes.Equal(bs, want) {
-		t.Fatalf("active secret is %q, want %q", bs, want)
+	if want := []byte("0"); !bytes.Equal(sec.Value, want) {
+		t.Fatalf("active secret is %q, want %q", sec.Value, want)
 	}
 
 	for v, want := range seen {
-		bs, err = d.DB.GetVersion("test", v, from)
+		sec, err = d.DB.GetVersion("test", v, from)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
-		if !bytes.Equal(bs, want) {
-			t.Fatalf("secret version %d is %q, want %q", v, bs, want)
+		if !bytes.Equal(sec.Value, want) {
+			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 
 		if err := d.DB.SetActiveVersion("test", v, from); err != nil {
 			t.Fatalf("setting %d as active: %v", v, err)
 		}
-		bs, err = d.DB.Get("test", from)
+		sec, err = d.DB.Get("test", from)
 		if err != nil {
 			t.Fatalf("getting active secret: %v", err)
 		}
-		if !bytes.Equal(bs, want) {
-			t.Fatalf("active secret is %q, want %q", bs, want)
+		if !bytes.Equal(sec.Value, want) {
+			t.Fatalf("active secret is %q, want %q", sec.Value, want)
 		}
 	}
 
@@ -317,12 +317,12 @@ func TestGet(t *testing.T) {
 	}
 
 	for v, want := range seen {
-		bs, err = d2.GetVersion("test", v, from)
+		sec, err = d2.GetVersion("test", v, from)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
-		if !bytes.Equal(bs, want) {
-			t.Fatalf("secret version %d is %q, want %q", v, bs, want)
+		if !bytes.Equal(sec.Value, want) {
+			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 	}
 }
