@@ -317,6 +317,9 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 // setActive changes the active version of the secret called name to
 // version.
 func (kv *kv) setActive(name string, version api.SecretVersion) error {
+	if version == api.SecretVersionDefault {
+		return errors.New("invalid version")
+	}
 	secret := kv.secrets[name]
 	if secret == nil {
 		return ErrNotFound
