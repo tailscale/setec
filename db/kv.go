@@ -252,7 +252,7 @@ func (kv *kv) info(name string) (*api.SecretInfo, error) {
 }
 
 // get returns a secret's active value.
-func (kv *kv) get(name string) ([]byte, error) {
+func (kv *kv) get(name string) (*api.SecretValue, error) {
 	secret := kv.secrets[name]
 	if secret == nil {
 		return nil, ErrNotFound
@@ -261,11 +261,14 @@ func (kv *kv) get(name string) ([]byte, error) {
 	if bs == nil {
 		return nil, errors.New("[unexpected] active secret version missing from DB")
 	}
-	return bs, nil
+	return &api.SecretValue{
+		Value:   bs,
+		Version: secret.ActiveVersion,
+	}, nil
 }
 
 // getVersion returns a secret's value at a specific version.
-func (kv *kv) getVersion(name string, version api.SecretVersion) ([]byte, error) {
+func (kv *kv) getVersion(name string, version api.SecretVersion) (*api.SecretValue, error) {
 	secret := kv.secrets[name]
 	if secret == nil {
 		return nil, ErrNotFound
@@ -274,7 +277,10 @@ func (kv *kv) getVersion(name string, version api.SecretVersion) ([]byte, error)
 	if bs == nil {
 		return nil, ErrNotFound
 	}
-	return bs, nil
+	return &api.SecretValue{
+		Value:   bs,
+		Version: version,
+	}, nil
 }
 
 // put writes value to the secret called name. If the secret already

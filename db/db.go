@@ -75,7 +75,7 @@ func Open(path string, key tink.AEAD) (*DB, error) {
 	rawACL, err := kv.get(ConfigACL)
 	if err != nil {
 		return nil, fmt.Errorf("reading ACLs from database: %w", err)
-	} else if pol, err := acl.Compile(rawACL); err != nil {
+	} else if pol, err := acl.Compile(rawACL.Value); err != nil {
 		return nil, fmt.Errorf("compiling ACLs: %w", err)
 	} else {
 		ret.acl = pol
@@ -136,7 +136,7 @@ func (db *DB) Info(name string, from []string) (*api.SecretInfo, error) {
 }
 
 // Get returns a secret's active value.
-func (db *DB) Get(name string, from []string) ([]byte, error) {
+func (db *DB) Get(name string, from []string) (*api.SecretValue, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if !db.checkACLLocked(from, name, acl.ActionGet) {
@@ -147,7 +147,7 @@ func (db *DB) Get(name string, from []string) ([]byte, error) {
 }
 
 // GetVersion returns a secret's value at a specific version.
-func (db *DB) GetVersion(name string, version api.SecretVersion, from []string) ([]byte, error) {
+func (db *DB) GetVersion(name string, version api.SecretVersion, from []string) (*api.SecretValue, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 	if !db.checkACLLocked(from, name, acl.ActionGet) {
@@ -220,7 +220,7 @@ func (db *DB) activateConfigLocked(name string, version api.SecretVersion) error
 		if err != nil {
 			return err
 		}
-		pol, err := acl.Compile(raw)
+		pol, err := acl.Compile(raw.Value)
 		if err != nil {
 			return fmt.Errorf("invalid ACL file: %w", err)
 		}
