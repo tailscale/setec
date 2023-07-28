@@ -19,13 +19,13 @@ package db
 import (
 	"errors"
 	"fmt"
-	"golang.org/x/exp/slices"
 	"strings"
 	"sync"
 
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
+	"golang.org/x/exp/slices"
 )
 
 // DB is an encrypted secrets database.
@@ -67,22 +67,28 @@ func Open(path string, key tink.AEAD) (*DB, error) {
 	if ns := len(kv.list()); ns > 0 && !kv.has(ConfigACL) {
 		return nil, fmt.Errorf("database has %d secrets, but no ACL", ns)
 	}
+
+	if !kv.has(ConfigACL) {
+		return ret, nil
+	}
+
 	rawACL, err := kv.get(ConfigACL)
 	if err != nil {
 		return nil, fmt.Errorf("reading ACLs from database: %w", err)
-	}
-	pol, err := acl.Compile(rawACL)
-	if err != nil {
+	} else if pol, err := acl.Compile(rawACL); err != nil {
 		return nil, fmt.Errorf("compiling ACLs: %w", err)
+	} else {
+		ret.acl = pol
 	}
-	ret.acl = pol
 
 	return ret, nil
 }
 
+func (db *DB) isMissingACL() bool { return db.acl == nil }
+
 // checkACLLocked reports whether from can do action on secret.
 func (db *DB) checkACLLocked(from []string, secret string, action acl.Action) bool {
-	if db.acl == nil {
+	if db.isMissingACL() {
 		// The only action permitted when no ACL file exists, is to
 		// put an initial ACL file.
 		if secret == ConfigACL && action == acl.ActionPut {
@@ -98,6 +104,10 @@ func (db *DB) checkACLLocked(from []string, secret string, action acl.Action) bo
 func (db *DB) List(from []string) ([]*api.SecretInfo, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	if db.isMissingACL() {
+		return nil, ErrAccessDenied
+	}
 
 	var ret []*api.SecretInfo
 	for _, name := range db.kv.list() {
@@ -168,10 +178,20 @@ func (db *DB) Put(name string, value []byte, from []string) (api.SecretVersion, 
 func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, error) {
 	switch name {
 	case ConfigACL:
-		if _, err := acl.Compile(value); err != nil {
+		pol, err := acl.Compile(value)
+		if err != nil {
 			return 0, fmt.Errorf("invalid ACL file: %w", err)
 		}
-		return db.kv.put(name, value)
+		first := !db.kv.has(name)
+		ver, err := db.kv.put(name, value)
+		if err != nil {
+			return 0, err
+		}
+		// Initial put implicitly sets the new version active.
+		if first {
+			db.acl = pol
+		}
+		return ver, err
 	default:
 		return 0, fmt.Errorf("unknown config value %q", name)
 	}
