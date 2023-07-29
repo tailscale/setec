@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 
 	"github.com/tailscale/setec/db"
@@ -127,6 +128,7 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 
 	var req REQ
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Print(err)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}

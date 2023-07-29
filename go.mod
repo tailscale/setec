@@ -8,6 +8,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
 	github.com/tink-crypto/tink-go/v2 v2.0.0
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
+	golang.org/x/term v0.10.0
 	tailscale.com v1.1.1-0.20230728214252-0554deb48c75
 )
 
@@ -77,7 +78,6 @@ require (
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/sync v0.2.0 // indirect
 	golang.org/x/sys v0.10.0 // indirect
-	golang.org/x/term v0.10.0 // indirect
 	golang.org/x/text v0.11.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.9.1 // indirect
