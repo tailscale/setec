@@ -74,9 +74,6 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
-	type request struct {
-		Name string
-	}
 	serveJSON(s, w, r, func(req api.InfoRequest, from []string) (*api.SecretInfo, error) {
 		return s.db.Info(req.Name, from)
 	})

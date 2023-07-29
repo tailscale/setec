@@ -94,7 +94,7 @@ func runServer(ctx context.Context, args []string) error {
 			return errors.New("--kms-key-name must be specified")
 		}
 		// TODO(corp/13375): hook up to cloud KMS, and have a --dev mode.
-		return errors.New("TODO: hookup to AWS KMS not implemented yet.")
+		return errors.New("TODO: hookup to AWS KMS not implemented yet")
 	}
 
 	s := &tsnet.Server{
