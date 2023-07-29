@@ -166,7 +166,8 @@ func (db *DB) Put(name string, value []byte, from []string) (api.SecretVersion, 
 	defer db.mu.Unlock()
 	if name == "" {
 		return 0, errors.New("empty secret name")
-	} else if !db.checkACLLocked(from, name, acl.ActionPut) {
+	}
+	if !db.checkACLLocked(from, name, acl.ActionPut) {
 		return 0, ErrAccessDenied
 	}
 
