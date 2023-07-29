@@ -61,22 +61,22 @@ func TestNoACLNoService(t *testing.T) {
 	from := []string{"root@tailscale.com"}
 
 	if _, err := d.List(from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatal("List with no ACLs did not error")
+		t.Fatalf("List with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
 	}
 	if _, err := d.Get("test", from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatal("Get with no ACLs did not error")
+		t.Fatalf("Get with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
 	}
 	if _, err := d.GetVersion("test", 42, from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatal("GetVersion with no ACLs did not error")
+		t.Fatalf("GetVersion with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
 	}
 	if v, err := d.Put("", []byte("ouch"), from); err == nil {
 		t.Fatalf("Put with empty secret name: got %+v, want error", v)
 	}
 	if _, err := d.Put("test", []byte("123"), from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatal("Put with no ACLs did not error")
+		t.Fatalf("Put with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
 	}
 	if err := d.SetActiveVersion("test", 42, from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatal("SetActiveVersion with no ACLs did not error")
+		t.Fatalf("SetActiveVersion with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
 	}
 
 	const acl = `{
