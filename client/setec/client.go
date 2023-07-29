@@ -84,11 +84,13 @@ func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RE
 
 	url := fmt.Sprintf("%s/%s", strings.TrimSuffix(c.Server, "/"), strings.TrimPrefix(path, "/"))
 
-	r, err := http.NewRequestWithContext(ctx, "GET", url, bytes.NewReader(bs))
+	r, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(bs))
 	if err != nil {
 		return resp, fmt.Errorf("constructing HTTP request: %w", err)
 	}
 	r.Header.Set("Content-Type", "application/json")
+	// See the comment in server/server.go for what this does.
+	r.Header.Set("Sec-X-Tailscale-No-Browsers", "setec")
 
 	do := c.DoHTTP
 	if do == nil {

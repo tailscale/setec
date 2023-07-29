@@ -115,8 +115,23 @@ func (s *Server) getIdentity(r *http.Request) ([]string, error) {
 // identity of the caller. The response returned from fn is serialized
 // as JSON back to the client.
 func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Request, fn func(r REQ, from []string) (RESP, error)) {
+	if r.Method != "POST" {
+		http.Error(w, "only POST requests allowed", http.StatusBadRequest)
+		return
+	}
 	if c := r.Header.Get("Content-Type"); c != "application/json" {
 		http.Error(w, "request body must be json", http.StatusBadRequest)
+		return
+	}
+	// Block any attempt to access the API from browsers. Longer term
+	// we want a more carefully thought out browser security config
+	// that does permit legitimate API use from a browser, but for
+	// now, require that a specific Sec-* header must be set. Sec- is
+	// one of the "forbidden header" prefixes that code running in
+	// browsers cannot set, so no CSRF or use of JS fetch APIs can
+	// satisfy this condition.
+	if h := r.Header.Get("Sec-X-Tailscale-No-Browsers"); h != "setec" {
+		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}
 
