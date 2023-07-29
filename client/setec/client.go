@@ -105,7 +105,12 @@ func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RE
 		if err != nil {
 			return resp, fmt.Errorf("reading error response body (HTTP status %d): %w", httpResp.StatusCode, err)
 		}
-		return resp, fmt.Errorf("request returned status %d: %q", httpResp.StatusCode, string(errBs))
+		return resp, fmt.Errorf("request returned status %d: %q", httpResp.StatusCode, string(bytes.TrimSpace(errBs)))
+	}
+
+	bs, err = io.ReadAll(httpResp.Body)
+	if err != nil {
+		return resp, err
 	}
 
 	if err := json.Unmarshal(bs, &resp); err != nil {

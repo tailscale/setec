@@ -5,6 +5,8 @@
 // server.
 package api
 
+import "strconv"
+
 // SecretVersion is the version of a secret.
 //
 // Secrets can have multiple values over time, for example when API
@@ -13,6 +15,10 @@ package api
 // value return a higher version than before, so the SecretVersion can
 // be interpreted as a chronological order of the secret's values.
 type SecretVersion uint32
+
+func (v SecretVersion) String() string {
+	return strconv.FormatUint(uint64(v), 10)
+}
 
 // SecretVersionDefault is a version that means the client wants the
 // server to pick an appropriate secret version. Currently, the server
