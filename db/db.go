@@ -164,6 +164,9 @@ func (db *DB) GetVersion(name string, version api.SecretVersion, from []string) 
 func (db *DB) Put(name string, value []byte, from []string) (api.SecretVersion, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if name == "" {
+		return 0, errors.New("empty secret name")
+	}
 	if !db.checkACLLocked(from, name, acl.ActionPut) {
 		return 0, ErrAccessDenied
 	}
@@ -202,7 +205,9 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 func (db *DB) SetActiveVersion(name string, version api.SecretVersion, from []string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if !db.checkACLLocked(from, name, acl.ActionSetActive) {
+	if name == "" {
+		return errors.New("empty secret name")
+	} else if !db.checkACLLocked(from, name, acl.ActionSetActive) {
 		return ErrAccessDenied
 	}
 

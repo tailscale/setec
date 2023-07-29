@@ -69,6 +69,9 @@ func TestNoACLNoService(t *testing.T) {
 	if _, err := d.GetVersion("test", 42, from); !errors.Is(err, db.ErrAccessDenied) {
 		t.Fatal("GetVersion with no ACLs did not error")
 	}
+	if v, err := d.Put("", []byte("ouch"), from); err == nil {
+		t.Fatalf("Put with empty secret name: got %+v, want error", v)
+	}
 	if _, err := d.Put("test", []byte("123"), from); !errors.Is(err, db.ErrAccessDenied) {
 		t.Fatal("Put with no ACLs did not error")
 	}
