@@ -99,6 +99,9 @@ type secret struct {
 	LatestVersion api.SecretVersion
 }
 
+// byteString is an alias for a string, but encodes to JSON as the conventional
+// base64 encoding used for []byte. We do this since we expect secrets to have
+// random binary content, and are storing them as strings for immutability.
 type byteString string
 
 func (b *byteString) UnmarshalText(text []byte) error {
