@@ -5,6 +5,7 @@ package db
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -89,13 +90,31 @@ type secret struct {
 	//
 	// We rely on api.SecretVersion being a type encoding/json will translate to
 	// a JSON string (currently an integer).
-	Versions map[api.SecretVersion][]byte
+	Versions map[api.SecretVersion]byteString
 	// ActiveVersion is the secret version that gets returned to
 	// clients who don't ask for a specific version of the secret.
 	ActiveVersion api.SecretVersion
 	// LatestVersion is the latest version that has already been used
 	// by a previous Put.
 	LatestVersion api.SecretVersion
+}
+
+// byteString is an alias for a string, but encodes to JSON as the conventional
+// base64 encoding used for []byte. We do this since we expect secrets to have
+// random binary content, and are storing them as strings for immutability.
+type byteString string
+
+func (b *byteString) UnmarshalText(text []byte) error {
+	dec, err := base64.StdEncoding.DecodeString(string(text))
+	if err != nil {
+		return err
+	}
+	*b = byteString(dec)
+	return nil
+}
+
+func (b byteString) MarshalText() ([]byte, error) {
+	return []byte(base64.StdEncoding.EncodeToString([]byte(b))), nil
 }
 
 // persist is the portion of DB that is persisted to disk, before
@@ -257,12 +276,12 @@ func (kv *kv) get(name string) (*api.SecretValue, error) {
 	if secret == nil {
 		return nil, ErrNotFound
 	}
-	bs := secret.Versions[secret.ActiveVersion]
-	if bs == nil {
+	bs, ok := secret.Versions[secret.ActiveVersion]
+	if !ok {
 		return nil, errors.New("[unexpected] active secret version missing from DB")
 	}
 	return &api.SecretValue{
-		Value:   bs,
+		Value:   []byte(bs),
 		Version: secret.ActiveVersion,
 	}, nil
 }
@@ -273,12 +292,12 @@ func (kv *kv) getVersion(name string, version api.SecretVersion) (*api.SecretVal
 	if secret == nil {
 		return nil, ErrNotFound
 	}
-	bs := secret.Versions[version]
-	if bs == nil {
+	bs, ok := secret.Versions[version]
+	if !ok {
 		return nil, ErrNotFound
 	}
 	return &api.SecretValue{
-		Value:   bs,
+		Value:   []byte(bs),
 		Version: version,
 	}, nil
 }
@@ -293,8 +312,8 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 		kv.secrets[name] = &secret{
 			LatestVersion: 1,
 			ActiveVersion: 1,
-			Versions: map[api.SecretVersion][]byte{
-				1: value,
+			Versions: map[api.SecretVersion]byteString{
+				1: byteString(value),
 			},
 		}
 		if err := kv.save(); err != nil {
@@ -306,12 +325,13 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 
 	// If the new value is the same as the current latest version, don't store a
 	// new copy.
-	if bytes.Equal(s.Versions[s.LatestVersion], value) {
+	bsValue := byteString(value)
+	if s.Versions[s.LatestVersion] == bsValue {
 		return s.LatestVersion, nil
 	}
 
 	s.LatestVersion++
-	s.Versions[s.LatestVersion] = value
+	s.Versions[s.LatestVersion] = bsValue
 	if err := kv.save(); err != nil {
 		delete(s.Versions, s.LatestVersion)
 		s.LatestVersion--
@@ -330,8 +350,7 @@ func (kv *kv) setActive(name string, version api.SecretVersion) error {
 	if secret == nil {
 		return ErrNotFound
 	}
-	bs := secret.Versions[version]
-	if bs == nil {
+	if _, ok := secret.Versions[version]; !ok {
 		return ErrNotFound
 	}
 	if secret.ActiveVersion == version {
