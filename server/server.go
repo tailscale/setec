@@ -102,10 +102,10 @@ func (s *Server) getIdentity(r *http.Request) ([]string, error) {
 		return nil, fmt.Errorf("calling WhoIs: %w", err)
 	}
 
-	if who.UserProfile != nil && who.UserProfile.LoginName != "" {
-		return []string{who.UserProfile.LoginName}, nil
-	} else if who.Node != nil && len(who.Node.Tags) > 0 {
-		return who.Node.Tags, nil
+	if node := who.Node; node != nil && len(node.Tags) > 0 {
+		return node.Tags, nil
+	} else if user := who.UserProfile; user != nil && user.LoginName != "" {
+		return append([]string{user.LoginName}, user.Groups...), nil
 	}
 	return nil, errors.New("failed to find caller identity")
 }

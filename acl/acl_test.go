@@ -12,10 +12,6 @@ import (
 func TestACL(t *testing.T) {
 	const src = `
 {
-  "groups": {
-    "admins": ["a@ts.net", "b@ts.net"],
-    "servers": ["tag:server", "tag:lab"],
-  },
   "rules": [
     {
       "principal": ["tag:control"],
@@ -23,7 +19,7 @@ func TestACL(t *testing.T) {
       "secret": ["control/foo", "control/bar"],
     },
     {
-      "principal": ["group:servers", "c@ts.net"],
+      "principal": ["group:debug", "tag:lab", "c@ts.net"],
       "action": ["get"],
       "secret": ["quux"],
     },
@@ -68,7 +64,7 @@ func TestACL(t *testing.T) {
 		deny("delete", "control/foo", "tag:control"),
 		deny("put", "control/other", "tag:control"),
 
-		allow("get", "quux", "tag:server"),
+		allow("get", "quux", "c@ts.net", "group:debug"),
 		allow("get", "quux", "tag:lab"),
 		allow("get", "quux", "tag:other", "tag:lab"),
 		allow("get", "quux", "tag:other", "tag:server", "tag:lab"),
@@ -77,11 +73,13 @@ func TestACL(t *testing.T) {
 		deny("put", "quux", "tag:server"),
 		deny("put", "quux", "tag:other"),
 
-		allow("get", "control/foo", "a@ts.net"),
-		allow("put", "control/foo", "b@ts.net"),
-		allow("list", "quux", "b@ts.net"),
-		allow("set-active", "quux", "b@ts.net"),
-		allow("delete", "quux", "b@ts.net"),
+		allow("get", "control/foo", "a@ts.net", "group:admins"),
+		allow("put", "control/foo", "b@ts.net", "group:admins"),
+		allow("list", "quux", "b@ts.net", "group:admins"),
+		allow("set-active", "quux", "b@ts.net", "group:admins"),
+		allow("delete", "quux", "b@ts.net", "group:admins"),
+		deny("get", "control/foo", "a@ts.net"),
+		deny("get", "control/foo", "b@ts.net", "group:unrelated"),
 
 		allow("get", "dev/foo", "c@ts.net"),
 		allow("put", "dev/foo", "c@ts.net"),
@@ -108,15 +106,7 @@ func TestInvalidPolicy(t *testing.T) {
 	reject := map[string]string{
 		"gibberish":        `gthgoht34h89`,
 		"unknown-field":    `{"blork": 42}`,
-		"wrong-group-type": `{"groups": "I'm a little teapot"}`,
 		"wrong-rules-type": `{"rules": "short and stout"}`,
-		"missing-group": `{
-  "rules": [{
-    "action": ["get"],
-    "secret": ["*"],
-    "principal": ["group:missing"],
-  }]
-}`,
 		"unknown-action": `{
   "rules": [{
     "action": ["oscillate-the-overthruster"],
