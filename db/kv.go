@@ -294,7 +294,7 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 			LatestVersion: 1,
 			ActiveVersion: 1,
 			Versions: map[api.SecretVersion][]byte{
-				1: value,
+				1: bytes.Clone(value),
 			},
 		}
 		if err := kv.save(); err != nil {
@@ -311,7 +311,7 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 	}
 
 	s.LatestVersion++
-	s.Versions[s.LatestVersion] = value
+	s.Versions[s.LatestVersion] = bytes.Clone(value)
 	if err := kv.save(); err != nil {
 		delete(s.Versions, s.LatestVersion)
 		s.LatestVersion--

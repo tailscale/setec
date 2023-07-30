@@ -335,6 +335,15 @@ func TestPut(t *testing.T) {
 		}
 		return id
 	}
+	mustGetVersion := func(id api.SecretVersion, want string) {
+		t.Helper()
+		got, err := d.DB.GetVersion(testName, id, from)
+		if err != nil {
+			t.Fatalf("Get %q version %v: unexpected error: %v", testName, id, err)
+		} else if !bytes.Equal(got.Value, []byte(want)) {
+			t.Fatalf("Get %q version %v: got %q, want %q", testName, id, got.Value, want)
+		}
+	}
 
 	testValue1 := []byte("test value 1")
 	testValue2 := []byte("test value 2")
@@ -345,7 +354,7 @@ func TestPut(t *testing.T) {
 	// Re-putting the same value should report the same version.
 	id2 := mustPut(testValue1)
 	if id1 != id2 {
-		t.Errorf("Put %q again: got %v, want %v", testName, id2, id1)
+		t.Fatalf("Put %q again: got %v, want %v", testName, id2, id1)
 	}
 
 	// Putting a different value must give a new version.
@@ -359,6 +368,15 @@ func TestPut(t *testing.T) {
 	if id4 == id3 {
 		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, id4)
 	}
+
+	// The values stored in the database should not alias the input.  The caller
+	// may reuse the buffer after storing it.
+
+	testValue1[len(testValue1)-1] = 'Q' // test value Q
+	testValue2[len(testValue2)-1] = '?' // test value ?
+
+	mustGetVersion(id1, "test value 1")
+	mustGetVersion(id3, "test value 2")
 }
 
 // TODO(corp/13375): tests that verify ACL enforcement. Not
