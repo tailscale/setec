@@ -335,7 +335,7 @@ func TestPut(t *testing.T) {
 		}
 		return id
 	}
-	mustGetVersion := func(id api.SecretVersion, want string) {
+	mustGetVersion := func(id api.SecretVersion, want string) *api.SecretValue {
 		t.Helper()
 		got, err := d.DB.GetVersion(testName, id, from)
 		if err != nil {
@@ -343,6 +343,7 @@ func TestPut(t *testing.T) {
 		} else if !bytes.Equal(got.Value, []byte(want)) {
 			t.Fatalf("Get %q version %v: got %q, want %q", testName, id, got.Value, want)
 		}
+		return got
 	}
 
 	testValue1 := []byte("test value 1")
@@ -374,6 +375,14 @@ func TestPut(t *testing.T) {
 
 	testValue1[len(testValue1)-1] = 'Q' // test value Q
 	testValue2[len(testValue2)-1] = '?' // test value ?
+
+	v1 := mustGetVersion(id1, "test value 1")
+	v2 := mustGetVersion(id3, "test value 2")
+
+	// Mutating the values returned by the database should not affect what the
+	// database has stored.
+	v1.Value[0] = 'Q'
+	v2.Value[0] = '?'
 
 	mustGetVersion(id1, "test value 1")
 	mustGetVersion(id3, "test value 2")
