@@ -7,10 +7,6 @@
 // ACL policy files are a HuJSON object that looks like:
 //
 //	{
-//	  "groups": {
-//	    "admins": ["dave@tailscale.com", "kylie@tailscale.com", "fromberger@tailscale.com"],
-//	    "log-sources": ["tag:server", "tag:lab"],
-//	  },
 //	  "rules": [
 //	    {
 //	      "principal": ["tag:control", "tag:control-us"],
@@ -60,8 +56,7 @@ const (
 
 // Policy is an ACL policy that controls access to secrets.
 type Policy struct {
-	groups map[string][]string
-	rules  []compiledRule
+	rules []compiledRule
 }
 
 // Compile returns a Policy that enforces the ACLs in bs.
@@ -77,8 +72,7 @@ func Compile(bs []byte) (*Policy, error) {
 		Action []Action `json:"action"`
 	}
 	var pol struct {
-		Groups map[string][]string `json:"groups"`
-		Rules  []rule              `json:"rules"`
+		Rules []rule `json:"rules"`
 	}
 	dec := json.NewDecoder(bytes.NewBuffer(bs))
 	dec.DisallowUnknownFields()
@@ -86,15 +80,13 @@ func Compile(bs []byte) (*Policy, error) {
 		return nil, fmt.Errorf("parsing ACL policy JSON: %w", err)
 	}
 
-	ret := &Policy{
-		groups: pol.Groups,
-	}
+	ret := &Policy{}
 	var errs []error
 
 	for i, r := range pol.Rules {
 		ruleNum := i + 1
 
-		from, err := expandFrom(ruleNum, r.From, ret.groups)
+		from, err := expandFrom(ruleNum, r.From)
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -146,29 +138,11 @@ func (r *compiledRule) allow(from []string, secret string, action Action) bool {
 	return false
 }
 
-// expandFrom converts from into a map for fast lookups. Elements of
-// the form "group:..." are expanded to the group's members.
-func expandFrom(ruleNum int, from []string, groups map[string][]string) (map[string]bool, error) {
+// expandFrom converts from into a map for fast lookups.
+func expandFrom(ruleNum int, from []string) (map[string]bool, error) {
 	ret := map[string]bool{}
-	var errs []error
 	for _, f := range from {
-		g, ok := strings.CutPrefix(f, "group:")
-		if !ok {
-			ret[f] = true
-			continue
-		}
-
-		grp, ok := groups[g]
-		if !ok {
-			errs = append(errs, fmt.Errorf("rule %d references unknown group %q", ruleNum, g))
-			continue
-		}
-		for _, gf := range grp {
-			ret[gf] = true
-		}
-	}
-	if len(errs) > 0 {
-		return nil, multierr.New(errs...)
+		ret[f] = true
 	}
 	return ret, nil
 }
