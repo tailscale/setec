@@ -19,26 +19,20 @@ import (
 )
 
 func TestCreate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	aead := &testutil.DummyAEAD{
-		Name: "TestKVCreate",
-	}
-	if _, err := db.Open(path, aead); err != nil {
-		t.Fatalf("creating test DB: %v", err)
-	}
+	tdb := newTestDB(t)
 
 	// Verify that the DB was created, and save its bytes to verify
 	// that the next open just reads, without mutation.
-	bs, err := os.ReadFile(path)
+	bs, err := os.ReadFile(tdb.Path)
 	if err != nil {
 		t.Fatalf("reading back database: %v", err)
 	}
 
-	if _, err = db.Open(path, aead); err != nil {
+	if _, err = db.Open(tdb.Path, tdb.KEK); err != nil {
 		t.Fatalf("opening test DB: %v", err)
 	}
 
-	bs2, err := os.ReadFile(path)
+	bs2, err := os.ReadFile(tdb.Path)
 	if err != nil {
 		t.Fatalf("reading back database: %v", err)
 	}
@@ -49,14 +43,7 @@ func TestCreate(t *testing.T) {
 }
 
 func TestNoACLNoService(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "test.db")
-	aead := &testutil.DummyAEAD{
-		Name: "TestNoACLNoService",
-	}
-	d, err := db.Open(path, aead)
-	if err != nil {
-		t.Fatal(err)
-	}
+	d := newTestDB(t).DB
 
 	from := []string{"root@tailscale.com"}
 
@@ -122,20 +109,26 @@ type testDB struct {
 	KEK  tink.AEAD
 }
 
-func dbWithACL(t *testing.T, acl string) *testDB {
+func newTestDB(t *testing.T) *testDB {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.db")
 	aead := &testutil.DummyAEAD{
-		Name: "TestKVCreate",
+		Name: "TestKV-" + t.Name(),
 	}
 	database, err := db.Open(path, aead)
 	if err != nil {
 		t.Fatalf("creating test DB: %v", err)
 	}
-	if _, err := database.Put(db.ConfigACL, []byte(acl), []string{}); err != nil {
+	return &testDB{path, database, aead}
+}
+
+func dbWithACL(t *testing.T, acl string) *testDB {
+	t.Helper()
+	database := newTestDB(t)
+	if _, err := database.DB.Put(db.ConfigACL, []byte(acl), []string{}); err != nil {
 		t.Fatalf("setting ACL: %v", err)
 	}
-	return &testDB{path, database, aead}
+	return database
 }
 
 func dbWithFullAccess(t *testing.T) (database *testDB, from []string) {
@@ -327,6 +320,44 @@ func TestGet(t *testing.T) {
 		if !bytes.Equal(sec.Value, want) {
 			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
+	}
+}
+
+func TestPut(t *testing.T) {
+	d, from := dbWithFullAccess(t)
+
+	const testName = "test-secret-name"
+	mustPut := func(v []byte) api.SecretVersion {
+		t.Helper()
+		id, err := d.DB.Put(testName, v, from)
+		if err != nil {
+			t.Fatalf("Put %q: unexpected error: %v", testName, err)
+		}
+		return id
+	}
+
+	testValue1 := []byte("test value 1")
+	testValue2 := []byte("test value 2")
+
+	// Putting a new value should assign a fresh version.
+	id1 := mustPut(testValue1)
+
+	// Re-putting the same value should report the same version.
+	id2 := mustPut(testValue1)
+	if id1 != id2 {
+		t.Errorf("Put %q again: got %v, want %v", testName, id2, id1)
+	}
+
+	// Putting a different value must give a new version.
+	id3 := mustPut(testValue2)
+	if id3 == id1 {
+		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, id3)
+	}
+
+	// Putting the original value gets us a new version again.
+	id4 := mustPut(testValue1)
+	if id4 == id3 {
+		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, id4)
 	}
 }
 

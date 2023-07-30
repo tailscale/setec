@@ -304,6 +304,12 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 		return 1, nil
 	}
 
+	// If the new value is the same as the current latest version, don't store a
+	// new copy.
+	if bytes.Equal(s.Versions[s.LatestVersion], value) {
+		return s.LatestVersion, nil
+	}
+
 	s.LatestVersion++
 	s.Versions[s.LatestVersion] = value
 	if err := kv.save(); err != nil {
