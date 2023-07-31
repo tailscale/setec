@@ -102,12 +102,11 @@ func (s *Server) getIdentity(r *http.Request) ([]string, error) {
 		return nil, fmt.Errorf("calling WhoIs: %w", err)
 	}
 
-	if node := who.Node; node != nil && len(node.Tags) > 0 {
-		return node.Tags, nil
-	} else if user := who.UserProfile; user != nil && user.LoginName != "" {
-		return append([]string{user.LoginName}, user.Groups...), nil
+	if who.Node.IsTagged() {
+		return who.Node.Tags, nil
+	} else {
+		return append([]string{who.UserProfile.LoginName}, who.UserProfile.Groups...), nil
 	}
-	return nil, errors.New("failed to find caller identity")
 }
 
 // serveJSON calls fn to handle a JSON API request. fn is invoked with
