@@ -24,6 +24,34 @@ const (
 	ActionDelete    = Action("delete")
 )
 
+// Secret is a secret name pattern that can optionally contain '*'
+// wildcard characters. The wildcard means "zero or more of any
+// character here."
+type Secret string
+
+// Match reports whether the Secret name pattern matches val.
+func (pat Secret) Match(val string) bool {
+	s := string(pat)
+	if !strings.Contains(s, "*") && s == val {
+		return true
+	}
+	// We want the user to use glob-ish syntax, where '*' is the
+	// equivalent of regexp's '.*'. We also don't want any other
+	// character of the input misinterpreted as a regexp control
+	// character.
+	//
+	// To achieve this, we:
+	//  - split each input string on '*'
+	//  - regexp-quote the resulting parts
+	//  - reassemble the quoted parts around '.*' separators
+	parts := strings.Split(s, "*")
+	for i := range parts {
+		parts[i] = regexp.QuoteMeta(parts[i])
+	}
+	re := regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(parts, ".*")))
+	return re.MatchString(val)
+}
+
 // Rules is a set of ACLs for access to a secret.
 type Rules []Rule
 
@@ -42,7 +70,7 @@ func (rr Rules) Allow(action Action, secret string) bool {
 // more characters.
 type Rule struct {
 	Action []Action `json:"action"`
-	Secret []string `json:"secret"`
+	Secret []Secret `json:"secret"`
 }
 
 // Allow reports whether the rule allows action on secret.
@@ -55,26 +83,9 @@ func (r *Rule) Allow(action Action, secret string) bool {
 		}
 		return false
 	}
-	secretMatches := func(secs []string) bool {
+	secretMatches := func(secs []Secret) bool {
 		for _, s := range secs {
-			if !strings.Contains(s, "*") && s == secret {
-				return true
-			}
-			// We want the user to use glob-ish syntax, where '*' is the
-			// equivalent of regexp's '.*'. We also don't want any other
-			// character of the input misinterpreted as a regexp control
-			// character.
-			//
-			// To achieve this, we:
-			//  - split each input string on '*'
-			//  - regexp-quote the resulting parts
-			//  - reassemble the quoted parts around '.*' separators
-			parts := strings.Split(s, "*")
-			for i := range parts {
-				parts[i] = regexp.QuoteMeta(parts[i])
-			}
-			re := regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(parts, ".*")))
-			if re.MatchString(secret) {
+			if s.Match(secret) {
 				return true
 			}
 		}

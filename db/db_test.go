@@ -65,7 +65,7 @@ func fullAccess() acl.Rules {
 	return acl.Rules{
 		acl.Rule{
 			Action: []acl.Action{acl.ActionGet, acl.ActionList, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
-			Secret: []string{"*"},
+			Secret: []acl.Secret{"*"},
 		},
 	}
 }
