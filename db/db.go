@@ -30,19 +30,15 @@ import (
 
 // DB is an encrypted secrets database.
 type DB struct {
-	mu  sync.Mutex
-	kv  *kv
-	acl *acl.Policy
+	mu sync.Mutex
+	kv *kv
 }
 
-// We store some of setec's configuration in the secrets database. To
-// do this reliably, reserve a name prefix of secrets that have
-// additional semantics (like config validation on put), for internal
-// use.
-const (
-	configPrefix = "_internal/"
-	ConfigACL    = "_internal/acl"
-)
+// We might store some of setec's configuration in the secrets
+// database. To do this reliably, reserve a name prefix of secrets
+// that have additional semantics (like config validation on put), for
+// internal use.
+const configPrefix = "_internal/"
 
 var (
 	// ErrAccessDenied is the error returned by DB methods when the
@@ -64,54 +60,19 @@ func Open(path string, key tink.AEAD) (*DB, error) {
 	ret := &DB{
 		kv: kv,
 	}
-	if ns := len(kv.list()); ns > 0 && !kv.has(ConfigACL) {
-		return nil, fmt.Errorf("database has %d secrets, but no ACL", ns)
-	}
-
-	if !kv.has(ConfigACL) {
-		return ret, nil
-	}
-
-	rawACL, err := kv.get(ConfigACL)
-	if err != nil {
-		return nil, fmt.Errorf("reading ACLs from database: %w", err)
-	} else if pol, err := acl.Compile(rawACL.Value); err != nil {
-		return nil, fmt.Errorf("compiling ACLs: %w", err)
-	} else {
-		ret.acl = pol
-	}
 
 	return ret, nil
 }
 
-func (db *DB) isMissingACL() bool { return db.acl == nil }
-
-// checkACLLocked reports whether from can do action on secret.
-func (db *DB) checkACLLocked(from []string, secret string, action acl.Action) bool {
-	if db.isMissingACL() {
-		// The only action permitted when no ACL file exists, is to
-		// put an initial ACL file.
-		if secret == ConfigACL && action == acl.ActionPut {
-			return true
-		}
-		return false
-	}
-	return db.acl.Allow(from, secret, action)
-}
-
 // List returns secret metadata for all secrets on which at least one
 // member of 'from' has acl.ActionList permissions.
-func (db *DB) List(from []string) ([]*api.SecretInfo, error) {
+func (db *DB) List(caps acl.Rules) ([]*api.SecretInfo, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if db.isMissingACL() {
-		return nil, ErrAccessDenied
-	}
-
 	var ret []*api.SecretInfo
 	for _, name := range db.kv.list() {
-		if !db.checkACLLocked(from, name, acl.ActionList) {
+		if !caps.Allow(acl.ActionList, name) {
 			continue
 		}
 		info, err := db.kv.info(name)
@@ -125,35 +86,35 @@ func (db *DB) List(from []string) ([]*api.SecretInfo, error) {
 }
 
 // Info returns metadata for the given secret.
-func (db *DB) Info(name string, from []string) (*api.SecretInfo, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	if !db.checkACLLocked(from, name, acl.ActionList) {
+func (db *DB) Info(name string, caps acl.Rules) (*api.SecretInfo, error) {
+	if !caps.Allow(acl.ActionList, name) {
 		return nil, ErrAccessDenied
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	return db.kv.info(name)
 }
 
 // Get returns a secret's active value.
-func (db *DB) Get(name string, from []string) (*api.SecretValue, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	if !db.checkACLLocked(from, name, acl.ActionGet) {
+func (db *DB) Get(name string, caps acl.Rules) (*api.SecretValue, error) {
+	if !caps.Allow(acl.ActionGet, name) {
 		return nil, ErrAccessDenied
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	return db.kv.get(name)
 }
 
 // GetVersion returns a secret's value at a specific version.
-func (db *DB) GetVersion(name string, version api.SecretVersion, from []string) (*api.SecretValue, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	if !db.checkACLLocked(from, name, acl.ActionGet) {
+func (db *DB) GetVersion(name string, version api.SecretVersion, caps acl.Rules) (*api.SecretValue, error) {
+	if !caps.Allow(acl.ActionGet, name) {
 		return nil, ErrAccessDenied
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	return db.kv.getVersion(name, version)
 }
 
@@ -161,40 +122,24 @@ func (db *DB) GetVersion(name string, version api.SecretVersion, from []string) 
 // exists, value is saved as a new inactive version. Otherwise, value
 // is saved as the initial version of the secret and immediately set
 // active. On success, returns the secret version for the new value.
-func (db *DB) Put(name string, value []byte, from []string) (api.SecretVersion, error) {
-	db.mu.Lock()
-	defer db.mu.Unlock()
+func (db *DB) Put(name string, value []byte, caps acl.Rules) (api.SecretVersion, error) {
 	if name == "" {
 		return 0, errors.New("empty secret name")
 	}
-	if !db.checkACLLocked(from, name, acl.ActionPut) {
+	if !caps.Allow(acl.ActionPut, name) {
 		return 0, ErrAccessDenied
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if strings.HasPrefix(name, configPrefix) {
 		return db.putConfigLocked(name, value)
 	}
-
 	return db.kv.put(name, value)
 }
 
 func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, error) {
 	switch name {
-	case ConfigACL:
-		pol, err := acl.Compile(value)
-		if err != nil {
-			return 0, fmt.Errorf("invalid ACL file: %w", err)
-		}
-		first := !db.kv.has(name)
-		ver, err := db.kv.put(name, value)
-		if err != nil {
-			return 0, err
-		}
-		// Initial put implicitly sets the new version active.
-		if first {
-			db.acl = pol
-		}
-		return ver, err
 	default:
 		return 0, fmt.Errorf("unknown config value %q", name)
 	}
@@ -202,38 +147,24 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 
 // SetActiveVersion changes the active version of the secret called
 // name to version.
-func (db *DB) SetActiveVersion(name string, version api.SecretVersion, from []string) error {
-	db.mu.Lock()
-	defer db.mu.Unlock()
+func (db *DB) SetActiveVersion(name string, version api.SecretVersion, caps acl.Rules) error {
 	if name == "" {
 		return errors.New("empty secret name")
-	} else if !db.checkACLLocked(from, name, acl.ActionSetActive) {
+	}
+	if !caps.Allow(acl.ActionSetActive, name) {
 		return ErrAccessDenied
 	}
 
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if strings.HasPrefix(name, configPrefix) {
 		return db.activateConfigLocked(name, version)
 	}
-
 	return db.kv.setActive(name, version)
 }
 
 func (db *DB) activateConfigLocked(name string, version api.SecretVersion) error {
 	switch name {
-	case ConfigACL:
-		raw, err := db.kv.getVersion(name, version)
-		if err != nil {
-			return err
-		}
-		pol, err := acl.Compile(raw.Value)
-		if err != nil {
-			return fmt.Errorf("invalid ACL file: %w", err)
-		}
-		if err := db.kv.setActive(name, version); err != nil {
-			return err
-		}
-		db.acl = pol
-		return nil
 	default:
 		return fmt.Errorf("unknown config value %q", name)
 	}

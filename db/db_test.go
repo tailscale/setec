@@ -5,13 +5,13 @@ package db_test
 
 import (
 	"bytes"
-	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/testutil"
@@ -42,67 +42,6 @@ func TestCreate(t *testing.T) {
 	}
 }
 
-func TestNoACLNoService(t *testing.T) {
-	d := newTestDB(t).DB
-
-	from := []string{"root@tailscale.com"}
-
-	if _, err := d.List(from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatalf("List with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
-	}
-	if _, err := d.Get("test", from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatalf("Get with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
-	}
-	if _, err := d.GetVersion("test", 42, from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatalf("GetVersion with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
-	}
-	if v, err := d.Put("", []byte("ouch"), from); err == nil {
-		t.Fatalf("Put with empty secret name: got %+v, want error", v)
-	}
-	if _, err := d.Put("test", []byte("123"), from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatalf("Put with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
-	}
-	if err := d.SetActiveVersion("test", 42, from); !errors.Is(err, db.ErrAccessDenied) {
-		t.Fatalf("SetActiveVersion with no ACLs: got error %v, want %v", err, db.ErrAccessDenied)
-	}
-
-	const acl = `{
-  "rules": [{
-    "principal": ["root@tailscale.com"],
-    "action": ["get", "list", "put", "set-active", "delete"],
-    "secret": ["*"],
-  }],
-}`
-	aclVer, err := d.Put(db.ConfigACL, []byte(acl), from)
-	if err != nil {
-		t.Fatalf("setting ACL: %v", err)
-	}
-	if want := api.SecretVersion(1); aclVer != want {
-		t.Fatalf("initial ACL version is %d, want %d", aclVer, want)
-	}
-
-	if _, err := d.List(from); err != nil {
-		t.Fatalf("List with ACLs: %v", err)
-	}
-	ver, err := d.Put("test", []byte("123"), from)
-	if err != nil {
-		t.Fatalf("Put with ACLs: %v", err)
-	}
-	if _, err := d.Get("test", from); err != nil {
-		t.Fatalf("Get with ACLs: %v", err)
-	}
-	if _, err := d.GetVersion("test", ver, from); err != nil {
-		t.Fatalf("GetVersion with ACLs: %v", err)
-	}
-	v2, err := d.Put("test", []byte("234"), from)
-	if err != nil {
-		t.Fatalf("Put with ACLs: %v", err)
-	}
-	if err := d.SetActiveVersion("test", v2, from); err != nil {
-		t.Fatalf("SetActiveVersion with ACLs: %v", err)
-	}
-}
-
 type testDB struct {
 	Path string
 	DB   *db.DB
@@ -122,33 +61,22 @@ func newTestDB(t *testing.T) *testDB {
 	return &testDB{path, database, aead}
 }
 
-func dbWithACL(t *testing.T, acl string) *testDB {
-	t.Helper()
-	database := newTestDB(t)
-	if _, err := database.DB.Put(db.ConfigACL, []byte(acl), []string{}); err != nil {
-		t.Fatalf("setting ACL: %v", err)
+func fullAccess() acl.Rules {
+	return acl.Rules{
+		acl.Rule{
+			Action: []acl.Action{acl.ActionGet, acl.ActionList, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
+			Secret: []string{"*"},
+		},
 	}
-	return database
-}
-
-func dbWithFullAccess(t *testing.T) (database *testDB, from []string) {
-	t.Helper()
-	const acl = `{
-  "rules": [{
-    "principal": ["root@tailscale.com"],
-    "action": ["get", "list", "put", "set-active", "delete"],
-    "secret": ["*"],
-  }],
-}`
-	return dbWithACL(t, acl), []string{"root@tailscale.com"}
 }
 
 func TestList(t *testing.T) {
-	d, from := dbWithFullAccess(t)
+	d := newTestDB(t)
+	access := fullAccess()
 
 	checkList := func(d *db.DB, want []*api.SecretInfo) {
 		t.Helper()
-		l, err := d.List(from)
+		l, err := d.List(access)
 		if err != nil {
 			t.Fatalf("listing secrets: %v", err)
 		}
@@ -157,23 +85,12 @@ func TestList(t *testing.T) {
 		}
 	}
 
-	checkList(d.DB, []*api.SecretInfo{
-		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
-	})
+	checkList(d.DB, []*api.SecretInfo(nil))
 
-	if _, err := d.DB.Put("test", []byte("foo"), from); err != nil {
+	if _, err := d.DB.Put("test", []byte("foo"), access); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
-		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1},
@@ -181,15 +98,10 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put("test", []byte("bar"), from); err != nil {
+	if _, err := d.DB.Put("test", []byte("bar"), access); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
-		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -197,15 +109,10 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put("test2", []byte("quux"), from); err != nil {
+	if _, err := d.DB.Put("test2", []byte("quux"), access); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
-		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -218,15 +125,10 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if err := d.DB.SetActiveVersion("test", api.SecretVersion(2), from); err != nil {
+	if err := d.DB.SetActiveVersion("test", api.SecretVersion(2), access); err != nil {
 		t.Fatalf("setting active version: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
-		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -245,11 +147,6 @@ func TestList(t *testing.T) {
 	}
 	checkList(d2, []*api.SecretInfo{
 		{
-			Name:          db.ConfigACL,
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
-		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
 			ActiveVersion: 2,
@@ -263,12 +160,13 @@ func TestList(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	d, from := dbWithFullAccess(t)
+	d := newTestDB(t)
+	access := fullAccess()
 
 	seen := map[api.SecretVersion][]byte{}
 	for i := 0; i < 10; i++ {
 		s := []byte(strconv.Itoa(i))
-		ver, err := d.DB.Put("test", s, from)
+		ver, err := d.DB.Put("test", s, access)
 		if err != nil {
 			t.Fatalf("putting secret %d: %v", i, err)
 		}
@@ -278,7 +176,7 @@ func TestGet(t *testing.T) {
 		seen[ver] = s
 	}
 
-	sec, err := d.DB.Get("test", from)
+	sec, err := d.DB.Get("test", access)
 	if err != nil {
 		t.Fatalf("getting secret: %v", err)
 	}
@@ -287,7 +185,7 @@ func TestGet(t *testing.T) {
 	}
 
 	for v, want := range seen {
-		sec, err = d.DB.GetVersion("test", v, from)
+		sec, err = d.DB.GetVersion("test", v, access)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
@@ -295,10 +193,10 @@ func TestGet(t *testing.T) {
 			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 
-		if err := d.DB.SetActiveVersion("test", v, from); err != nil {
+		if err := d.DB.SetActiveVersion("test", v, access); err != nil {
 			t.Fatalf("setting %d as active: %v", v, err)
 		}
-		sec, err = d.DB.Get("test", from)
+		sec, err = d.DB.Get("test", access)
 		if err != nil {
 			t.Fatalf("getting active secret: %v", err)
 		}
@@ -313,7 +211,7 @@ func TestGet(t *testing.T) {
 	}
 
 	for v, want := range seen {
-		sec, err = d2.GetVersion("test", v, from)
+		sec, err = d2.GetVersion("test", v, access)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
@@ -324,12 +222,13 @@ func TestGet(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	d, from := dbWithFullAccess(t)
+	d := newTestDB(t)
+	access := fullAccess()
 
 	const testName = "test-secret-name"
 	mustPut := func(v []byte) api.SecretVersion {
 		t.Helper()
-		id, err := d.DB.Put(testName, v, from)
+		id, err := d.DB.Put(testName, v, access)
 		if err != nil {
 			t.Fatalf("Put %q: unexpected error: %v", testName, err)
 		}
@@ -337,7 +236,7 @@ func TestPut(t *testing.T) {
 	}
 	mustGetVersion := func(id api.SecretVersion, want string) *api.SecretValue {
 		t.Helper()
-		got, err := d.DB.GetVersion(testName, id, from)
+		got, err := d.DB.GetVersion(testName, id, access)
 		if err != nil {
 			t.Fatalf("Get %q version %v: unexpected error: %v", testName, id, err)
 		} else if !bytes.Equal(got.Value, []byte(want)) {

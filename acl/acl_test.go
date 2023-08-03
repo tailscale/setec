@@ -10,115 +10,68 @@ import (
 )
 
 func TestACL(t *testing.T) {
-	const src = `
-{
-  "rules": [
-    {
-      "principal": ["tag:control"],
-      "action": ["get"],
-      "secret": ["control/foo", "control/bar"],
-    },
-    {
-      "principal": ["group:debug", "tag:lab", "c@ts.net"],
-      "action": ["get"],
-      "secret": ["quux"],
-    },
-    {
-      "principal": ["group:admins"],
-      "action": ["get", "list", "put", "set-active", "delete"],
-      "secret": ["*"],
-    },
-    {
-      "principal": ["c@ts.net"],
-      "action": ["get", "list", "put", "set-active", "delete"],
-      "secret": ["dev/*", "prod/*/some-secret"],
-    },
-  ],
-}`
-	pol, err := acl.Compile([]byte(src))
-	if err != nil {
-		t.Fatal(err)
+	rules := acl.Rules{
+		acl.Rule{
+			Action: []acl.Action{acl.ActionGet},
+			Secret: []string{"control/foo", "control/bar"},
+		},
+		acl.Rule{
+			Action: []acl.Action{acl.ActionList, acl.ActionPut, acl.ActionSetActive},
+			Secret: []string{"*"},
+		},
+		acl.Rule{
+			Action: []acl.Action{acl.ActionDelete},
+			Secret: []string{"dev/*"},
+		},
 	}
 
 	type testCase struct {
-		from   []string
 		secret string
 		action acl.Action
 		want   bool
 	}
-	allow := func(action, secret string, from ...string) testCase {
-		return testCase{from, secret, acl.Action(action), true}
+	allow := func(action, secret string) testCase {
+		return testCase{secret, acl.Action(action), true}
 	}
-	deny := func(action, secret string, from ...string) testCase {
-		return testCase{from, secret, acl.Action(action), false}
+	deny := func(action, secret string) testCase {
+		return testCase{secret, acl.Action(action), false}
 	}
 	tests := []testCase{
-		allow("get", "control/foo", "tag:control"),
-		allow("get", "control/foo", "tag:other", "tag:control"),
-		allow("get", "control/bar", "tag:control"),
-		deny("get", "control/quux", "tag:control"),
-		deny("get", "control/foo", "tag:other"),
-		deny("list", "control/foo", "tag:control"),
-		deny("put", "control/foo", "tag:control"),
-		deny("set-active", "control/foo", "tag:control"),
-		deny("delete", "control/foo", "tag:control"),
-		deny("put", "control/other", "tag:control"),
+		allow("get", "control/foo"),
+		allow("get", "control/bar"),
+		deny("get", "control/quux"),
+		deny("get", "something/else"),
+		deny("get", "dev/foo"),
 
-		allow("get", "quux", "c@ts.net", "group:debug"),
-		allow("get", "quux", "tag:lab"),
-		allow("get", "quux", "tag:other", "tag:lab"),
-		allow("get", "quux", "tag:other", "tag:server", "tag:lab"),
-		allow("get", "quux", "c@ts.net"),
-		deny("put", "quux", "c@ts.net"),
-		deny("put", "quux", "tag:server"),
-		deny("put", "quux", "tag:other"),
+		allow("list", "control/foo"),
+		allow("list", "control/bar"),
+		allow("list", "control/quux"),
+		allow("list", "something/else"),
+		allow("list", "dev/foo"),
 
-		allow("get", "control/foo", "a@ts.net", "group:admins"),
-		allow("put", "control/foo", "b@ts.net", "group:admins"),
-		allow("list", "quux", "b@ts.net", "group:admins"),
-		allow("set-active", "quux", "b@ts.net", "group:admins"),
-		allow("delete", "quux", "b@ts.net", "group:admins"),
-		deny("get", "control/foo", "a@ts.net"),
-		deny("get", "control/foo", "b@ts.net", "group:unrelated"),
+		allow("put", "control/foo"),
+		allow("put", "control/bar"),
+		allow("put", "control/quux"),
+		allow("put", "something/else"),
+		allow("put", "dev/foo"),
 
-		allow("get", "dev/foo", "c@ts.net"),
-		allow("put", "dev/foo", "c@ts.net"),
-		allow("list", "dev/bar", "c@ts.net"),
-		allow("set-active", "dev/bar", "c@ts.net"),
-		allow("delete", "dev/bar", "c@ts.net"),
-		allow("get", "prod/foo/some-secret", "c@ts.net"),
-		allow("put", "prod/foo/some-secret", "c@ts.net"),
-		allow("list", "prod/quux/some-secret", "c@ts.net"),
-		allow("set-active", "prod/other/some-secret", "c@ts.net"),
-		allow("delete", "prod/wat/some-secret", "c@ts.net"),
-		deny("get", "prod/other/suffix", "c@ts.net"),
-		deny("get", "prod/some-secret", "c@ts.net"),
+		allow("set-active", "control/foo"),
+		allow("set-active", "control/bar"),
+		allow("set-active", "control/quux"),
+		allow("set-active", "something/else"),
+		allow("set-active", "dev/foo"),
+
+		allow("delete", "dev/foo"),
+		allow("delete", "dev/bar/quux"),
+		deny("delete", "control/foo"),
+		deny("delete", "control/bar"),
+		deny("delete", "something/else"),
+		deny("delete", "dev"),
 	}
 
 	for _, test := range tests {
-		if got := pol.Allow(test.from, test.secret, test.action); got != test.want {
-			t.Errorf("Allow(%v, %q, %q) = %v, want %v", test.from, test.secret, test.action, got, test.want)
-		}
-	}
-}
-
-func TestInvalidPolicy(t *testing.T) {
-	reject := map[string]string{
-		"gibberish":        `gthgoht34h89`,
-		"unknown-field":    `{"blork": 42}`,
-		"wrong-rules-type": `{"rules": "short and stout"}`,
-		"unknown-action": `{
-  "rules": [{
-    "action": ["oscillate-the-overthruster"],
-    "secret": ["*"],
-    "principal": ["a@ts.net"],
-  }]
-}`,
-	}
-
-	for n, r := range reject {
-		if _, err := acl.Compile([]byte(r)); err == nil {
-			t.Errorf("parse %q succeeded, want error", n)
+		if got := rules.Allow(test.action, test.secret); got != test.want {
+			t.Errorf("Allow(%q, %q) = %v, want %v", test.action, test.secret, got, test.want)
 		}
 	}
 }
