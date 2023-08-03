@@ -248,11 +248,6 @@ func (kv *kv) list() []string {
 	return ret
 }
 
-// has reports whether a secret called name is defined in kv.
-func (kv *kv) has(name string) bool {
-	return kv.secrets[name] != nil
-}
-
 // info returns metadata about a secret.
 func (kv *kv) info(name string) (*api.SecretInfo, error) {
 	secret := kv.secrets[name]

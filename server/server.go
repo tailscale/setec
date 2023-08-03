@@ -11,11 +11,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
+	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/tailcfg"
 )
 
 // Config is the configuration for a Server.
@@ -60,60 +63,73 @@ func New(cfg Config) (*Server, error) {
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.ListRequest, from []string) ([]*api.SecretInfo, error) {
-		return s.db.List(from)
+	serveJSON(s, w, r, func(req api.ListRequest, caps acl.Rules) ([]*api.SecretInfo, error) {
+		return s.db.List(caps)
 	})
 }
 
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.GetRequest, from []string) (*api.SecretValue, error) {
+	serveJSON(s, w, r, func(req api.GetRequest, caps acl.Rules) (*api.SecretValue, error) {
 		if req.Version != 0 {
-			return s.db.GetVersion(req.Name, req.Version, from)
+			return s.db.GetVersion(req.Name, req.Version, caps)
 		}
-		return s.db.Get(req.Name, from)
+		return s.db.Get(req.Name, caps)
 	})
 }
 
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.InfoRequest, from []string) (*api.SecretInfo, error) {
-		return s.db.Info(req.Name, from)
+	serveJSON(s, w, r, func(req api.InfoRequest, caps acl.Rules) (*api.SecretInfo, error) {
+		return s.db.Info(req.Name, caps)
 	})
 }
 
 func (s *Server) put(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.PutRequest, from []string) (api.SecretVersion, error) {
-		return s.db.Put(req.Name, req.Value, from)
+	serveJSON(s, w, r, func(req api.PutRequest, caps acl.Rules) (api.SecretVersion, error) {
+		return s.db.Put(req.Name, req.Value, caps)
 	})
 }
 
 func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.SetActiveRequest, from []string) (struct{}, error) {
-		if err := s.db.SetActiveVersion(req.Name, req.Version, from); err != nil {
+	serveJSON(s, w, r, func(req api.SetActiveRequest, caps acl.Rules) (struct{}, error) {
+		if err := s.db.SetActiveVersion(req.Name, req.Version, caps); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
 	})
 }
 
-// getIdentity extracts a Tailscale identity from an HTTP request.
-func (s *Server) getIdentity(r *http.Request) ([]string, error) {
+const aclCap tailcfg.PeerCapability = "https://tailscale.com/cap/secrets"
+
+// getIdentity extracts identity and permissions from an HTTP request.
+func (s *Server) getIdentity(r *http.Request) (id string, caps acl.Rules, err error) {
 	who, err := s.whois(r.Context(), r.RemoteAddr)
 	if err != nil {
-		return nil, fmt.Errorf("calling WhoIs: %w", err)
+		return "", nil, fmt.Errorf("calling WhoIs: %w", err)
 	}
 
 	if who.Node.IsTagged() {
-		return who.Node.Tags, nil
+		// TODO: when we have audit logs, put together a better identity struct with more info
+		id = strings.Join(who.Node.Tags, ",")
 	} else {
-		return append([]string{who.UserProfile.LoginName}, who.UserProfile.Groups...), nil
+		id = who.UserProfile.LoginName
 	}
+	if id == "" {
+		return "", nil, errors.New("failed to find caller identity")
+	}
+
+	caps, err = tailcfg.UnmarshalCapJSON[acl.Rule](who.CapMap, aclCap)
+	if err != nil {
+		return "", nil, fmt.Errorf("unmarshaling peer capabilities: %w", err)
+	}
+
+	return id, caps, nil
 }
 
 // serveJSON calls fn to handle a JSON API request. fn is invoked with
 // the request body decoded into r, and from set to the Tailscale
 // identity of the caller. The response returned from fn is serialized
 // as JSON back to the client.
-func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Request, fn func(r REQ, from []string) (RESP, error)) {
+func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Request, fn func(r REQ, caps acl.Rules) (RESP, error)) {
 	if r.Method != "POST" {
 		http.Error(w, "only POST requests allowed", http.StatusBadRequest)
 		return
@@ -134,7 +150,7 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	from, err := s.getIdentity(r)
+	_, caps, err := s.getIdentity(r)
 	if err != nil {
 		http.Error(w, "unable to identify caller", http.StatusInternalServerError)
 		return
@@ -147,7 +163,7 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resp, err := fn(req, from)
+	resp, err := fn(req, caps)
 	if errors.Is(err, db.ErrAccessDenied) {
 		http.Error(w, "access denied", http.StatusForbidden)
 		return
