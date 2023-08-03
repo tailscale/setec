@@ -13,15 +13,15 @@ func TestACL(t *testing.T) {
 	rules := acl.Rules{
 		acl.Rule{
 			Action: []acl.Action{acl.ActionGet},
-			Secret: []string{"control/foo", "control/bar"},
+			Secret: []acl.Secret{"control/foo", "control/bar"},
 		},
 		acl.Rule{
 			Action: []acl.Action{acl.ActionList, acl.ActionPut, acl.ActionSetActive},
-			Secret: []string{"*"},
+			Secret: []acl.Secret{"*"},
 		},
 		acl.Rule{
 			Action: []acl.Action{acl.ActionDelete},
-			Secret: []string{"dev/*"},
+			Secret: []acl.Secret{"dev/*"},
 		},
 	}
 
