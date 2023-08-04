@@ -72,7 +72,7 @@ func superuser() db.Caller {
 		},
 		Permissions: acl.Rules{
 			acl.Rule{
-				Action: []acl.Action{acl.ActionGet, acl.ActionList, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
+				Action: []acl.Action{acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
 				Secret: []acl.Secret{"*"},
 			},
 		},
