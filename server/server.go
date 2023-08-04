@@ -14,6 +14,7 @@ import (
 	"net/netip"
 
 	"github.com/tailscale/setec/acl"
+	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
@@ -27,6 +28,8 @@ type Config struct {
 	DBPath string
 	// Key is the AEAD used to encrypt/decrypt the database.
 	Key tink.AEAD
+	// AuditLog is the writer to use for audit logs.
+	AuditLog *audit.Writer
 	// WhoIs is a function that reports an identity for a client IP
 	// address. Outside of tests, it will be the WhoIs of a Tailscale
 	// LocalClient.
@@ -44,7 +47,7 @@ type Server struct {
 
 // New creates a secret server and makes it ready to serve.
 func New(cfg Config) (*Server, error) {
-	db, err := db.Open(cfg.DBPath, cfg.Key)
+	db, err := db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
 	if err != nil {
 		return nil, fmt.Errorf("opening DB: %w", err)
 	}

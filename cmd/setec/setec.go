@@ -21,6 +21,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/peterbourgon/ff/v3/ffcli"
+	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/types/api"
@@ -38,7 +39,7 @@ func main() {
 		ShortHelp:  "run the setec server",
 		FlagSet: func() *flag.FlagSet {
 			fs := flag.NewFlagSet("server", flag.ExitOnError)
-			fs.StringVar(&serverArgs.StateDir, "state-dir", "", "tsnet state dir")
+			fs.StringVar(&serverArgs.StateDir, "state-dir", "", "setec state dir")
 			fs.StringVar(&serverArgs.Hostname, "hostname", "", "Tailscale hostname to use")
 			fs.StringVar(&serverArgs.KMSKeyName, "kms-key-name", "", "name of KMS key to use for database encryption")
 			fs.BoolVar(&serverArgs.Dev, "dev", false, "dev mode")
@@ -177,11 +178,17 @@ func runServer(ctx context.Context, args []string) error {
 	mux := http.NewServeMux()
 	tsweb.Debugger(mux)
 
+	audit, err := audit.NewFile(filepath.Join(serverArgs.StateDir, "audit.log"))
+	if err != nil {
+		return fmt.Errorf("opening audit log: %w", err)
+	}
+
 	_, err = server.New(server.Config{
-		DBPath: filepath.Join(serverArgs.StateDir, "database"),
-		Key:    kek,
-		WhoIs:  lc.WhoIs,
-		Mux:    mux,
+		DBPath:   filepath.Join(serverArgs.StateDir, "database"),
+		Key:      kek,
+		AuditLog: audit,
+		WhoIs:    lc.WhoIs,
+		Mux:      mux,
 	})
 	if err != nil {
 		return fmt.Errorf("initializing setec server: %v", err)

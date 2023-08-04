@@ -5,6 +5,7 @@ package db_test
 
 import (
 	"bytes"
+	"io"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -30,7 +31,7 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("reading back database: %v", err)
 	}
 
-	if _, err = db.Open(tdb.Path, tdb.KEK); err != nil {
+	if _, err = db.Open(tdb.Path, tdb.KEK, audit.New(io.Discard)); err != nil {
 		t.Fatalf("opening test DB: %v", err)
 	}
 
@@ -56,7 +57,7 @@ func newTestDB(t *testing.T) *testDB {
 	aead := &testutil.DummyAEAD{
 		Name: "TestKV-" + t.Name(),
 	}
-	database, err := db.Open(path, aead)
+	database, err := db.Open(path, aead, audit.New(io.Discard))
 	if err != nil {
 		t.Fatalf("creating test DB: %v", err)
 	}
@@ -150,7 +151,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	d2, err := db.Open(d.Path, d.KEK)
+	d2, err := db.Open(d.Path, d.KEK, audit.New(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}
@@ -214,7 +215,7 @@ func TestGet(t *testing.T) {
 		}
 	}
 
-	d2, err := db.Open(d.Path, d.KEK)
+	d2, err := db.Open(d.Path, d.KEK, audit.New(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}
