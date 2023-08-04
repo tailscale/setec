@@ -16,7 +16,7 @@ func TestACL(t *testing.T) {
 			Secret: []acl.Secret{"control/foo", "control/bar"},
 		},
 		acl.Rule{
-			Action: []acl.Action{acl.ActionList, acl.ActionPut, acl.ActionSetActive},
+			Action: []acl.Action{acl.ActionInfo, acl.ActionPut, acl.ActionSetActive},
 			Secret: []acl.Secret{"*"},
 		},
 		acl.Rule{
@@ -43,11 +43,11 @@ func TestACL(t *testing.T) {
 		deny("get", "something/else"),
 		deny("get", "dev/foo"),
 
-		allow("list", "control/foo"),
-		allow("list", "control/bar"),
-		allow("list", "control/quux"),
-		allow("list", "something/else"),
-		allow("list", "dev/foo"),
+		allow("info", "control/foo"),
+		allow("info", "control/bar"),
+		allow("info", "control/quux"),
+		allow("info", "something/else"),
+		allow("info", "dev/foo"),
 
 		allow("put", "control/foo"),
 		allow("put", "control/bar"),

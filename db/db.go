@@ -84,7 +84,7 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 
 	var ret []*api.SecretInfo
 	for _, name := range db.kv.list() {
-		if !caller.Permissions.Allow(acl.ActionList, name) {
+		if !caller.Permissions.Allow(acl.ActionInfo, name) {
 			continue
 		}
 		info, err := db.kv.info(name)
@@ -99,7 +99,7 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 
 // Info returns metadata for the given secret.
 func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
-	if !caller.Permissions.Allow(acl.ActionList, name) {
+	if !caller.Permissions.Allow(acl.ActionInfo, name) {
 		return nil, ErrAccessDenied
 	}
 

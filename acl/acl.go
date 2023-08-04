@@ -18,7 +18,7 @@ type Action string
 
 const (
 	ActionGet       = Action("get")
-	ActionList      = Action("list")
+	ActionInfo      = Action("info")
 	ActionPut       = Action("put")
 	ActionSetActive = Action("set-active")
 	ActionDelete    = Action("delete")

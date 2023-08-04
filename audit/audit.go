@@ -44,6 +44,10 @@ type Entry struct {
 	Principal Principal `json:"principal"`
 	// Action is the action being performed on a secret.
 	Action acl.Action `json:"action"`
+
+	// The fields above are set for all audit entries. The fields
+	// below are only set for certain Actions.
+
 	// Secret is the name of the secret being acted upon.
 	Secret string `json:"secret"`
 	// SecretVersion is the version of the secret being acted upon, if
