@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	"github.com/tailscale/setec/acl"
+	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"golang.org/x/exp/slices"
@@ -64,15 +65,26 @@ func Open(path string, key tink.AEAD) (*DB, error) {
 	return ret, nil
 }
 
+// Caller encapsulates a caller identity. It is required by all database
+// methods. The contents of Caller should be derived from a tailsale WhoIs
+// API call.
+type Caller struct {
+	// Principal is the caller identity that gets written to audit
+	// logs.
+	Principal audit.Principal
+	// Permissions are the permissions the caller has.
+	Permissions acl.Rules
+}
+
 // List returns secret metadata for all secrets on which at least one
 // member of 'from' has acl.ActionList permissions.
-func (db *DB) List(caps acl.Rules) ([]*api.SecretInfo, error) {
+func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
 	var ret []*api.SecretInfo
 	for _, name := range db.kv.list() {
-		if !caps.Allow(acl.ActionList, name) {
+		if !caller.Permissions.Allow(acl.ActionList, name) {
 			continue
 		}
 		info, err := db.kv.info(name)
@@ -86,8 +98,8 @@ func (db *DB) List(caps acl.Rules) ([]*api.SecretInfo, error) {
 }
 
 // Info returns metadata for the given secret.
-func (db *DB) Info(name string, caps acl.Rules) (*api.SecretInfo, error) {
-	if !caps.Allow(acl.ActionList, name) {
+func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
+	if !caller.Permissions.Allow(acl.ActionList, name) {
 		return nil, ErrAccessDenied
 	}
 
@@ -97,8 +109,8 @@ func (db *DB) Info(name string, caps acl.Rules) (*api.SecretInfo, error) {
 }
 
 // Get returns a secret's active value.
-func (db *DB) Get(name string, caps acl.Rules) (*api.SecretValue, error) {
-	if !caps.Allow(acl.ActionGet, name) {
+func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
+	if !caller.Permissions.Allow(acl.ActionGet, name) {
 		return nil, ErrAccessDenied
 	}
 
@@ -108,8 +120,8 @@ func (db *DB) Get(name string, caps acl.Rules) (*api.SecretValue, error) {
 }
 
 // GetVersion returns a secret's value at a specific version.
-func (db *DB) GetVersion(name string, version api.SecretVersion, caps acl.Rules) (*api.SecretValue, error) {
-	if !caps.Allow(acl.ActionGet, name) {
+func (db *DB) GetVersion(caller Caller, name string, version api.SecretVersion) (*api.SecretValue, error) {
+	if !caller.Permissions.Allow(acl.ActionGet, name) {
 		return nil, ErrAccessDenied
 	}
 
@@ -122,11 +134,11 @@ func (db *DB) GetVersion(name string, version api.SecretVersion, caps acl.Rules)
 // exists, value is saved as a new inactive version. Otherwise, value
 // is saved as the initial version of the secret and immediately set
 // active. On success, returns the secret version for the new value.
-func (db *DB) Put(name string, value []byte, caps acl.Rules) (api.SecretVersion, error) {
+func (db *DB) Put(caller Caller, name string, value []byte) (api.SecretVersion, error) {
 	if name == "" {
 		return 0, errors.New("empty secret name")
 	}
-	if !caps.Allow(acl.ActionPut, name) {
+	if !caller.Permissions.Allow(acl.ActionPut, name) {
 		return 0, ErrAccessDenied
 	}
 
@@ -147,11 +159,11 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 
 // SetActiveVersion changes the active version of the secret called
 // name to version.
-func (db *DB) SetActiveVersion(name string, version api.SecretVersion, caps acl.Rules) error {
+func (db *DB) SetActiveVersion(caller Caller, name string, version api.SecretVersion) error {
 	if name == "" {
 		return errors.New("empty secret name")
 	}
-	if !caps.Allow(acl.ActionSetActive, name) {
+	if !caller.Permissions.Allow(acl.ActionSetActive, name) {
 		return ErrAccessDenied
 	}
 
