@@ -5,6 +5,7 @@ package db_test
 
 import (
 	"bytes"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/tailscale/setec/acl"
+	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/testutil"
@@ -61,22 +63,29 @@ func newTestDB(t *testing.T) *testDB {
 	return &testDB{path, database, aead}
 }
 
-func fullAccess() acl.Rules {
-	return acl.Rules{
-		acl.Rule{
-			Action: []acl.Action{acl.ActionGet, acl.ActionList, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
-			Secret: []acl.Secret{"*"},
+func superuser() db.Caller {
+	return db.Caller{
+		Principal: audit.Principal{
+			User:     "flynn",
+			IP:       netip.MustParseAddr("1.2.3.4"),
+			Hostname: "mcp",
+		},
+		Permissions: acl.Rules{
+			acl.Rule{
+				Action: []acl.Action{acl.ActionGet, acl.ActionList, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
+				Secret: []acl.Secret{"*"},
+			},
 		},
 	}
 }
 
 func TestList(t *testing.T) {
 	d := newTestDB(t)
-	access := fullAccess()
+	id := superuser()
 
 	checkList := func(d *db.DB, want []*api.SecretInfo) {
 		t.Helper()
-		l, err := d.List(access)
+		l, err := d.List(id)
 		if err != nil {
 			t.Fatalf("listing secrets: %v", err)
 		}
@@ -87,7 +96,7 @@ func TestList(t *testing.T) {
 
 	checkList(d.DB, []*api.SecretInfo(nil))
 
-	if _, err := d.DB.Put("test", []byte("foo"), access); err != nil {
+	if _, err := d.DB.Put(id, "test", []byte("foo")); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
@@ -98,7 +107,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put("test", []byte("bar"), access); err != nil {
+	if _, err := d.DB.Put(id, "test", []byte("bar")); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
@@ -109,7 +118,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put("test2", []byte("quux"), access); err != nil {
+	if _, err := d.DB.Put(id, "test2", []byte("quux")); err != nil {
 		t.Fatalf("putting secret: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
@@ -125,7 +134,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if err := d.DB.SetActiveVersion("test", api.SecretVersion(2), access); err != nil {
+	if err := d.DB.SetActiveVersion(id, "test", api.SecretVersion(2)); err != nil {
 		t.Fatalf("setting active version: %v", err)
 	}
 	checkList(d.DB, []*api.SecretInfo{
@@ -161,12 +170,12 @@ func TestList(t *testing.T) {
 
 func TestGet(t *testing.T) {
 	d := newTestDB(t)
-	access := fullAccess()
+	id := superuser()
 
 	seen := map[api.SecretVersion][]byte{}
 	for i := 0; i < 10; i++ {
 		s := []byte(strconv.Itoa(i))
-		ver, err := d.DB.Put("test", s, access)
+		ver, err := d.DB.Put(id, "test", s)
 		if err != nil {
 			t.Fatalf("putting secret %d: %v", i, err)
 		}
@@ -176,7 +185,7 @@ func TestGet(t *testing.T) {
 		seen[ver] = s
 	}
 
-	sec, err := d.DB.Get("test", access)
+	sec, err := d.DB.Get(id, "test")
 	if err != nil {
 		t.Fatalf("getting secret: %v", err)
 	}
@@ -185,7 +194,7 @@ func TestGet(t *testing.T) {
 	}
 
 	for v, want := range seen {
-		sec, err = d.DB.GetVersion("test", v, access)
+		sec, err = d.DB.GetVersion(id, "test", v)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
@@ -193,10 +202,10 @@ func TestGet(t *testing.T) {
 			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 
-		if err := d.DB.SetActiveVersion("test", v, access); err != nil {
+		if err := d.DB.SetActiveVersion(id, "test", v); err != nil {
 			t.Fatalf("setting %d as active: %v", v, err)
 		}
-		sec, err = d.DB.Get("test", access)
+		sec, err = d.DB.Get(id, "test")
 		if err != nil {
 			t.Fatalf("getting active secret: %v", err)
 		}
@@ -211,7 +220,7 @@ func TestGet(t *testing.T) {
 	}
 
 	for v, want := range seen {
-		sec, err = d2.GetVersion("test", v, access)
+		sec, err = d2.GetVersion(id, "test", v)
 		if err != nil {
 			t.Fatalf("getting secret version %d: %v", v, err)
 		}
@@ -223,20 +232,20 @@ func TestGet(t *testing.T) {
 
 func TestPut(t *testing.T) {
 	d := newTestDB(t)
-	access := fullAccess()
+	id := superuser()
 
 	const testName = "test-secret-name"
 	mustPut := func(v []byte) api.SecretVersion {
 		t.Helper()
-		id, err := d.DB.Put(testName, v, access)
+		id, err := d.DB.Put(id, testName, v)
 		if err != nil {
 			t.Fatalf("Put %q: unexpected error: %v", testName, err)
 		}
 		return id
 	}
-	mustGetVersion := func(id api.SecretVersion, want string) *api.SecretValue {
+	mustGetVersion := func(version api.SecretVersion, want string) *api.SecretValue {
 		t.Helper()
-		got, err := d.DB.GetVersion(testName, id, access)
+		got, err := d.DB.GetVersion(id, testName, version)
 		if err != nil {
 			t.Fatalf("Get %q version %v: unexpected error: %v", testName, id, err)
 		} else if !bytes.Equal(got.Value, []byte(want)) {
@@ -249,24 +258,24 @@ func TestPut(t *testing.T) {
 	testValue2 := []byte("test value 2")
 
 	// Putting a new value should assign a fresh version.
-	id1 := mustPut(testValue1)
+	ver1 := mustPut(testValue1)
 
 	// Re-putting the same value should report the same version.
-	id2 := mustPut(testValue1)
-	if id1 != id2 {
-		t.Fatalf("Put %q again: got %v, want %v", testName, id2, id1)
+	ver2 := mustPut(testValue1)
+	if ver1 != ver2 {
+		t.Fatalf("Put %q again: got %v, want %v", testName, ver2, ver1)
 	}
 
 	// Putting a different value must give a new version.
-	id3 := mustPut(testValue2)
-	if id3 == id1 {
-		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, id3)
+	ver3 := mustPut(testValue2)
+	if ver3 == ver1 {
+		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, ver3)
 	}
 
 	// Putting the original value gets us a new version again.
-	id4 := mustPut(testValue1)
-	if id4 == id3 {
-		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, id4)
+	ver4 := mustPut(testValue1)
+	if ver4 == ver3 {
+		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, ver4)
 	}
 
 	// The values stored in the database should not alias the input.  The caller
@@ -275,16 +284,16 @@ func TestPut(t *testing.T) {
 	testValue1[len(testValue1)-1] = 'Q' // test value Q
 	testValue2[len(testValue2)-1] = '?' // test value ?
 
-	v1 := mustGetVersion(id1, "test value 1")
-	v2 := mustGetVersion(id3, "test value 2")
+	v1 := mustGetVersion(ver1, "test value 1")
+	v2 := mustGetVersion(ver3, "test value 2")
 
 	// Mutating the values returned by the database should not affect what the
 	// database has stored.
 	v1.Value[0] = 'Q'
 	v2.Value[0] = '?'
 
-	mustGetVersion(id1, "test value 1")
-	mustGetVersion(id3, "test value 2")
+	mustGetVersion(ver1, "test value 1")
+	mustGetVersion(ver3, "test value 2")
 }
 
 // TODO(corp/13375): tests that verify ACL enforcement. Not
