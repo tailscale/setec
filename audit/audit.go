@@ -44,15 +44,20 @@ type Entry struct {
 	Principal Principal `json:"principal"`
 	// Action is the action being performed on a secret.
 	Action acl.Action `json:"action"`
+	// Authorized is whether the action in this entry took place, or
+	// was attempted and denied due to ACLs.
+	Authorized bool `json:"authorized"`
 
 	// The fields above are set for all audit entries. The fields
 	// below are only set for certain Actions.
 
-	// Secret is the name of the secret being acted upon.
-	Secret string `json:"secret"`
-	// SecretVersion is the version of the secret being acted upon, if
-	// applicable, or api.SecretVersionDefault if a version doesn't
-	// make sense for the action (e.g. listing a secret).
+	// Secret is the name of the secret being acted upon. Set for all
+	// actions, except acl.ActionInfo where an empty secret indicates
+	// a list operation.
+	Secret string `json:"secret,omitempty"`
+	// SecretVersion is the version of the secret being acted
+	// upon. Set for acl.ActionGet, acl.ActionPut,
+	// acl.ActionSetActive.
 	SecretVersion api.SecretVersion `json:"secretVersion,omitempty"`
 }
 
