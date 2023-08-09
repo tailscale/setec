@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -21,9 +22,25 @@ import (
 
 // testServer is a trivial fake for the parts of the server required by the
 // store implementation.
-type testServer map[string][]*api.SecretValue
+type testServer struct {
+	mu   sync.Mutex
+	data map[string][]*api.SecretValue
+}
 
-func (ts testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// Add adds data as the active version of the named secret.
+func (ts *testServer) Add(name, data string, version api.SecretVersion) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.data == nil {
+		ts.data = make(map[string][]*api.SecretValue)
+	}
+	ts.data[name] = append([]*api.SecretValue{{
+		Value:   []byte(data),
+		Version: version,
+	}}, ts.data[name]...)
+}
+
+func (ts *testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/get" {
 		http.Error(w, "unsupported request", http.StatusInternalServerError)
 		return
@@ -38,7 +55,9 @@ func (ts testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	svs, ok := ts[req.Name]
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	svs, ok := ts.data[req.Name]
 	if ok {
 		for _, sv := range svs {
 			if req.Version == 0 || req.Version == sv.Version {
@@ -51,6 +70,18 @@ func (ts testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, fmt.Sprintf("%q not found", req.Name), http.StatusBadRequest)
 }
 
+func checkSecretValue(t *testing.T, st *setec.Store, name, want string) setec.Secret {
+	t.Helper()
+	f := st.Secret(name)
+	if f == nil {
+		t.Fatalf("Secret %q not found", name)
+	}
+	if got := string(f.Get()); got != want {
+		t.Fatalf("Secret %q: got %q, want %q", name, got, want)
+	}
+	return f
+}
+
 func mustMemCache(t *testing.T, data string) *setec.MemCache {
 	t.Helper()
 	var mc setec.MemCache
@@ -61,13 +92,11 @@ func mustMemCache(t *testing.T, data string) *setec.MemCache {
 }
 
 func TestStore(t *testing.T) {
-	ts := testServer{
-		"alpha": {{Value: []byte("ok"), Version: 1}},
-		"bravo": {
-			{Value: []byte("no"), Version: 2},
-			{Value: []byte("yes"), Version: 1},
-		},
-	}
+	ts := new(testServer)
+	ts.Add("alpha", "ok", 1)
+	ts.Add("bravo", "yes", 1)
+	ts.Add("bravo", "no", 2)
+
 	s := httptest.NewServer(ts)
 	defer s.Close()
 
@@ -122,11 +151,7 @@ func TestStore(t *testing.T) {
 		defer st.Close()
 
 		// We should be able to get a secret we requested.
-		if f := st.Secret("alpha"); f == nil {
-			t.Error("Lookup alpha: result is nil")
-		} else if got, want := string(f.Get()), "ok"; got != want {
-			t.Errorf("Lookup alpha: got %q, want %q", got, want)
-		}
+		checkSecretValue(t, st, "alpha", "ok")
 
 		// We should not be able to get a secret we didn't request.
 		if f := st.Secret("nonesuch"); f != nil {
@@ -146,11 +171,10 @@ func TestCachedStore(t *testing.T) {
 
 	// Connect to a service which has a newer value of the same secret, and
 	// verify that initially we see the cached value.
-	s := httptest.NewServer(testServer{
-		"alpha": {
-			{Value: []byte("bazquux"), Version: 200}, // a newer value
-			{Value: []byte("foobar"), Version: 100},  // the value in cache
-		}})
+	ts := new(testServer)
+	ts.Add("alpha", "foobar", 100)
+	ts.Add("alpha", "bazquux", 200)
+	s := httptest.NewServer(ts)
 	defer s.Close()
 	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
 
@@ -166,14 +190,7 @@ func TestCachedStore(t *testing.T) {
 	}
 	defer st.Close()
 
-	alpha := st.Secret("alpha")
-	if alpha == nil {
-		t.Fatal("Lookup alpha: secret not found")
-	}
-
-	if got, want := string(alpha.Get()), "foobar"; got != want {
-		t.Fatalf("Lookup alpha: got %q, want %q", got, want)
-	}
+	alpha := checkSecretValue(t, st, "alpha", "foobar")
 
 	// After the poller has had a chance to observe the new version, verify that
 	// we see it without having to update explicitly.
@@ -207,9 +224,9 @@ func TestCachedStore(t *testing.T) {
 }
 
 func TestBadCache(t *testing.T) {
-	s := httptest.NewServer(testServer{
-		"alpha": {{Value: []byte("foobar"), Version: 100}},
-	})
+	ts := new(testServer)
+	ts.Add("alpha", "foobar", 100)
+	s := httptest.NewServer(ts)
 	defer s.Close()
 	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
 	ctx := context.Background()
@@ -235,11 +252,67 @@ func TestBadCache(t *testing.T) {
 			}
 
 			// Despite a cache load error, we should have gotten a value.
-			if got, want := string(st.Secret("alpha").Get()), "foobar"; got != want {
-				t.Fatalf("Lookup alpha: got %q, want %q", got, want)
-			}
+			checkSecretValue(t, st, "alpha", "foobar")
 		})
 	}
+}
+
+func TestSlowInit(t *testing.T) {
+	ts := new(testServer)
+	s := httptest.NewServer(ts)
+	defer s.Close()
+
+	ctx := context.Background()
+	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
+
+	errc := make(chan error)
+	checkNotReady := func() {
+		select {
+		case err := <-errc:
+			t.Fatalf("Store should not be ready (err=%v)", err)
+		case <-time.After(time.Millisecond):
+			// OK
+		}
+	}
+
+	var st *setec.Store
+	go func() {
+		defer close(errc)
+		var err error
+		st, err = setec.NewStore(ctx, setec.StoreConfig{
+			Client:  cli,
+			Secrets: []string{"minsc", "boo"},
+		})
+		errc <- err
+	}()
+
+	// Initially the server has no secrets, so NewStore should wait.
+	checkNotReady()
+
+	// A value for one of the secrets arrives, but we still await the other.
+	ts.Add("boo", "go for the eyes", 1)
+	checkNotReady()
+
+	// A value for an unrelated secret arrives, and does not affect us.
+	ts.Add("dynaheir", "my spell has no effect", 5)
+	checkNotReady()
+
+	// A value for the other missing secret arrives.
+	ts.Add("minsc", "full plate and packing steel", 1)
+
+	// Now the store should become ready.
+	select {
+	case <-time.After(15 * time.Second):
+		t.Fatal("Timed out waiting for store to finish initializing")
+	case err := <-errc:
+		if err != nil {
+			t.Errorf("NewStore reported an error: %v", err)
+		}
+	}
+	defer st.Close()
+
+	checkSecretValue(t, st, "minsc", "full plate and packing steel")
+	checkSecretValue(t, st, "boo", "go for the eyes")
 }
 
 type badCache struct{}

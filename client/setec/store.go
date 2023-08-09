@@ -322,37 +322,38 @@ func sleepFor(ctx context.Context, d time.Duration) {
 // refreshed by the update poll.  Any error reported by this method should be
 // treated as fatal.
 func (s *Store) initializeActive(ctx context.Context) error {
-	allPresent := func() bool {
-		for _, v := range s.active.m {
-			if v == nil {
-				return false
-			}
-		}
-		return true
-	}
-
 	const baseRetryInterval = 1 * time.Millisecond
 	retryWait := baseRetryInterval
 
-	for !allPresent() {
-		err := s.poll(ctx, s.active.m)
-		if err == nil {
-			break // succeeded for all values
-		} else if ctx.Err() != nil {
-			return err // polling failed because the context ended, give up
+	for {
+		var missing int
+		for name, sv := range s.active.m {
+			if sv != nil {
+				continue
+			}
+			sv, err := s.client.Get(ctx, name)
+			if err == nil {
+				s.active.m[name] = sv
+				continue
+			} else if ctx.Err() != nil {
+				return err // context ended, give up
+			}
+			s.logf("[store] error fetching %q: %v (retrying)", name, err)
+			missing++
+		}
+		if missing == 0 {
+			return nil // succeeded for all values
 		}
 
 		// Otherwise, wait a bit and try again, with gentle backoff.
 		//
 		// TODO(creachadair): Maybe be more discriminating about which errors we
 		// will retry for. Also maybe log when we retry.
-		s.logf("WARNING: store init poll failed: %v (retrying)", err)
 		sleepFor(ctx, retryWait)
-		if retryWait < time.Second {
-			retryWait += retryWait // caps at 1024ms
+		if retryWait < 4*time.Second {
+			retryWait += retryWait // caps at 4096ms
 		}
 	}
-	return nil
 }
 
 // A PollTicker is used to inject time control in to the polling loop of a
