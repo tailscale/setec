@@ -21,9 +21,7 @@ import (
 
 // testServer is a trivial fake for the parts of the server required by the
 // store implementation.
-type testServer struct {
-	secrets map[string][]*api.SecretValue
-}
+type testServer map[string][]*api.SecretValue
 
 func (ts testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/api/get" {
@@ -40,7 +38,7 @@ func (ts testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	svs, ok := ts.secrets[req.Name]
+	svs, ok := ts[req.Name]
 	if ok {
 		for _, sv := range svs {
 			if req.Version == 0 || req.Version == sv.Version {
@@ -63,13 +61,13 @@ func mustMemCache(t *testing.T, data string) *setec.MemCache {
 }
 
 func TestStore(t *testing.T) {
-	ts := testServer{secrets: map[string][]*api.SecretValue{
+	ts := testServer{
 		"alpha": {{Value: []byte("ok"), Version: 1}},
 		"bravo": {
 			{Value: []byte("no"), Version: 2},
 			{Value: []byte("yes"), Version: 1},
 		},
-	}}
+	}
 	s := httptest.NewServer(ts)
 	defer s.Close()
 
@@ -148,11 +146,11 @@ func TestCachedStore(t *testing.T) {
 
 	// Connect to a service which has a newer value of the same secret, and
 	// verify that initially we see the cached value.
-	s := httptest.NewServer(testServer{secrets: map[string][]*api.SecretValue{
+	s := httptest.NewServer(testServer{
 		"alpha": {
 			{Value: []byte("bazquux"), Version: 200}, // a newer value
 			{Value: []byte("foobar"), Version: 100},  // the value in cache
-		}}})
+		}})
 	defer s.Close()
 	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
 
@@ -194,9 +192,9 @@ func TestCachedStore(t *testing.T) {
 }
 
 func TestBadCache(t *testing.T) {
-	s := httptest.NewServer(testServer{secrets: map[string][]*api.SecretValue{
+	s := httptest.NewServer(testServer{
 		"alpha": {{Value: []byte("foobar"), Version: 100}},
-	}})
+	})
 	defer s.Close()
 	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
 	ctx := context.Background()
