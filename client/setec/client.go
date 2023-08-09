@@ -1,15 +1,14 @@
 // Copyright (c) Tailscale Inc & AUTHORS
 // SPDX-License-Identifier: BSD-3-Clause
 
-// Package setec is a client library to access and manage secrets
-// stored remotely in a secret management service.
+// Package setec is a client library to access and manage secrets stored
+// remotely in a secret management service.
 package setec
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,51 +16,6 @@ import (
 
 	"github.com/tailscale/setec/types/api"
 )
-
-// Store is a store that provides named secrets.
-type Store struct {
-}
-
-// Cache is an interface that lets a Store persist one piece of data
-// locally. The persistence need not be perfect (i.e. it's okay to
-// lose previously written data).
-type Cache interface {
-	// Write persists the given bytes for future retrieval.
-	Write([]byte) error
-	// Read returns previously persisted bytes, if any are available.
-	Read() ([]byte, error)
-}
-
-// StoreConfig is the configuration for Store.
-type StoreConfig struct {
-	// Client is the client to use to fetch secrets.
-	Client Client
-	// Cache, if non-nil, is a cache that can save secrets locally.
-	//
-	// Depending on the implementation, local caching may degrade
-	// security slightly by making secrets easier to get at, but in
-	// return allows the Store to initialize and run during outages of
-	// the secrets management service.
-	//
-	// If no cache is provided, the Store uses an ephemeral in-memory
-	// cache that lasts the lifetime of the process only.
-	Cache Cache
-	// Secrets are the names of the secrets this Store should
-	// retrieve. Only secrets named here can be read out of the store.
-	Secrets []string
-}
-
-// NewStore creates a secret store with the given configuration.
-// NewStore blocks until the secrets named in cfg.Secrets are
-// available for retrieval through Secret().
-func NewStore(ctx context.Context, cfg *StoreConfig) (*Store, error) {
-	return nil, errors.New("not implemented")
-}
-
-// Secret returns the value of the named secret.
-func (s *Store) Secret(name string) []byte {
-	return nil
-}
 
 // Client is a raw client to the secret management server.
 // If you're just consuming secrets, you probably want to use a Store
