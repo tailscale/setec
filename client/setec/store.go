@@ -112,7 +112,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	s.active.f = make(map[string]Secret)
 
 	// If we have a cache, try to load data from there first.
-	data, err := s.cache.Read()
+	data, err := s.loadCache()
 	if err != nil {
 		// If we fail to load the cache, treat it as empty.
 		s.logf("WARNING: error loading cache: %v (continuing)", err)
@@ -219,6 +219,12 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 	for {
 		select {
 		case <-ctx.Done():
+			s.logf("[store] stopping update poller")
+			s.active.RLock()
+			defer s.active.RUnlock()
+			if err := s.flushCacheLocked(); err != nil {
+				s.logf("WARNING: error flushing cache: %v", err)
+			}
 			return
 		case <-t.C:
 			updates := make(map[string]*api.SecretValue)
@@ -257,6 +263,13 @@ func (s *Store) flushCacheLocked() error {
 		return fmt.Errorf("updating cache: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) loadCache() ([]byte, error) {
+	if s.cache == nil {
+		return nil, nil
+	}
+	return s.cache.Read()
 }
 
 func sleepFor(ctx context.Context, d time.Duration) {

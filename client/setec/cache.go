@@ -30,6 +30,8 @@ func (m *MemCache) Write(data []byte) error { m.data = data; return nil }
 
 func (m *MemCache) Read() ([]byte, error) { return m.data, nil }
 
+func (m *MemCache) String() string { return string(m.data) }
+
 // FileCache is an implementation of the Cache interface that stores a value in
 // a file at the specified path.
 type FileCache string
