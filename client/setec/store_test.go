@@ -140,6 +140,9 @@ func TestStore(t *testing.T) {
 func TestCachedStore(t *testing.T) {
 	const cacheData = `{"alpha":{"Value":"Zm9vYmFy","Version":100}}`
 
+	// Make a poll ticker so we can control the poll schedule.
+	pollTicker := newFakeTicker()
+
 	// Populate a memory cache with an "old" value of a secret.
 	mc := mustMemCache(t, cacheData)
 
@@ -155,10 +158,10 @@ func TestCachedStore(t *testing.T) {
 
 	ctx := context.Background()
 	st, err := setec.NewStore(ctx, setec.StoreConfig{
-		Client:       cli,
-		Secrets:      []string{"alpha"},
-		Cache:        mc,
-		PollInterval: 50 * time.Millisecond,
+		Client:     cli,
+		Secrets:    []string{"alpha"},
+		Cache:      mc,
+		PollTicker: pollTicker,
 	})
 	if err != nil {
 		t.Fatalf("NewServer: unexpected error: %v", err)
@@ -176,7 +179,8 @@ func TestCachedStore(t *testing.T) {
 
 	// After the poller has had a chance to observe the new version, verify that
 	// we see it without having to update explicitly.
-	time.Sleep(100 * time.Millisecond)
+	pollTicker.Poll()
+
 	if got, want := string(alpha.Get()), "bazquux"; got != want {
 		t.Fatalf("Lookup alpha: got %q, want %q", got, want)
 	}
@@ -229,3 +233,22 @@ type badCache struct{}
 
 func (badCache) Write([]byte) error    { return errors.New("write failed") }
 func (badCache) Read() ([]byte, error) { return nil, errors.New("read failed") }
+
+func newFakeTicker() *fakeTicker {
+	return &fakeTicker{ch: make(chan time.Time), done: make(chan struct{})}
+}
+
+type fakeTicker struct {
+	ch   chan time.Time
+	done chan struct{}
+}
+
+func (fakeTicker) Stop()                    {}
+func (f fakeTicker) Chan() <-chan time.Time { return f.ch }
+func (f *fakeTicker) Done()                 { f.done <- struct{}{} }
+
+// Poll signals the ticker, then waits for Done to be invoked.
+func (f *fakeTicker) Poll() {
+	f.ch <- time.Now()
+	<-f.done
+}

@@ -19,9 +19,10 @@ import (
 
 // Store is a store that provides named secrets.
 type Store struct {
-	client Client // API client
-	logf   logger.Logf
-	cache  Cache
+	client    Client // API client
+	logf      logger.Logf
+	cache     Cache
+	newTicker func(time.Duration) Ticker
 
 	active struct {
 		// Lock exclusive to modify the contents of the maps.
@@ -63,11 +64,16 @@ type StoreConfig struct {
 
 	// PollInterval is the interval at which the store will poll the service for
 	// updated secret values. If zero or negative, a default value is used.
+	// This field is ignored if PollTicker is set.
 	PollInterval time.Duration
 
 	// Logf is a logging function where text logs should be sent.  If nil, logs
 	// are written to the standard log package.
 	Logf logger.Logf
+
+	// PollTicker, if set is a ticker that is used to control the scheduling of
+	// update polls. If nil, a time.Ticker is used based on the PollInterval.
+	PollTicker Ticker
 }
 
 func (c StoreConfig) logger() logger.Logf {
@@ -86,6 +92,15 @@ func (c StoreConfig) pollInterval() time.Duration {
 
 func (c StoreConfig) cache() Cache { return c.Cache }
 
+func (c StoreConfig) newTicker() func(time.Duration) Ticker {
+	if c.PollTicker == nil {
+		return func(d time.Duration) Ticker {
+			return stdTicker{Ticker: time.NewTicker(d)}
+		}
+	}
+	return func(time.Duration) Ticker { return c.PollTicker }
+}
+
 // NewStore creates a secret store with the given configuration.  The service
 // URL of the client must be set.
 //
@@ -102,9 +117,10 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	}
 
 	s := &Store{
-		client: cfg.Client,
-		logf:   cfg.logger(),
-		cache:  cfg.cache(),
+		client:    cfg.Client,
+		logf:      cfg.logger(),
+		cache:     cfg.cache(),
+		newTicker: cfg.newTicker(),
 	}
 
 	// Initialize the active versions maps.
@@ -212,8 +228,9 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 	// Jitter polls by ±10% of the total interval to avert a thundering herd.
 	jitter := time.Duration(rand.Intn(int(interval)/20) - (int(interval) / 10))
 
-	t := time.NewTicker(interval + jitter)
+	t := s.newTicker(interval + jitter)
 	defer t.Stop()
+	doPoll := t.Chan()
 
 	s.logf("[store] begin update poll (interval=%v)", interval+jitter)
 	for {
@@ -226,7 +243,7 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 				s.logf("WARNING: error flushing cache: %v", err)
 			}
 			return
-		case <-t.C:
+		case <-doPoll:
 			updates := make(map[string]*api.SecretValue)
 			if err := s.poll(ctx, updates); err != nil {
 				s.logf("[store] update poll failed: %v (continuing)", err)
@@ -234,6 +251,7 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 			if err := s.applyUpdates(updates); err != nil {
 				s.logf("[store] applying updates failed: %v (continuing)", err)
 			}
+			t.Done()
 		}
 	}
 }
@@ -316,3 +334,25 @@ func (s *Store) initializeActive(ctx context.Context) error {
 	}
 	return nil
 }
+
+// A PollTicker is used to inject time control in to the polling loop of a
+// store.
+type Ticker interface {
+	// Chan returns a channel upon which time values are delivered to signal
+	// that a poll is required.
+	Chan() <-chan time.Time
+
+	// Stop signals that the ticker should stop and deliver no more values.
+	Stop()
+
+	// Done is invoked when a signaled poll is complete.
+	Done()
+
+	// TODO(creachadair): If we want to plumb in time hints from the service, we
+	// can also expose the Reset method here.
+}
+
+type stdTicker struct{ *time.Ticker }
+
+func (s stdTicker) Chan() <-chan time.Time { return s.Ticker.C }
+func (stdTicker) Done()                    {}
