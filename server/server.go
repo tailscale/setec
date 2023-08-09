@@ -8,8 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"expvar"
 	"fmt"
-	"log"
 	"net/http"
 	"net/netip"
 
@@ -19,6 +19,7 @@ import (
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/metrics"
 	"tailscale.com/tailcfg"
 )
 
@@ -43,6 +44,12 @@ type Config struct {
 type Server struct {
 	db    *db.DB
 	whois func(context.Context, string) (*apitype.WhoIsResponse, error)
+
+	// Metrics
+	countCalls             *metrics.LabelMap // :: method name → count
+	countCallBadRequest    *metrics.LabelMap // :: method name → count
+	countCallForbidden     *metrics.LabelMap // :: method name → count
+	countCallInternalError *metrics.LabelMap // :: method name → count
 }
 
 // New creates a secret server and makes it ready to serve.
@@ -55,6 +62,11 @@ func New(cfg Config) (*Server, error) {
 	ret := &Server{
 		db:    db,
 		whois: cfg.WhoIs,
+
+		countCalls:             &metrics.LabelMap{Label: "method"},
+		countCallBadRequest:    &metrics.LabelMap{Label: "method"},
+		countCallForbidden:     &metrics.LabelMap{Label: "method"},
+		countCallInternalError: &metrics.LabelMap{Label: "method"},
 	}
 	cfg.Mux.HandleFunc("/api/list", ret.list)
 	cfg.Mux.HandleFunc("/api/get", ret.get)
@@ -63,6 +75,17 @@ func New(cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/set-active", ret.setActive)
 
 	return ret, nil
+}
+
+// Metrics returns a collection of metrics for s. THe caller is responsible for
+// publishing the result to the metrics exporter.
+func (s *Server) Metrics() expvar.Var {
+	m := new(metrics.Set)
+	m.Set("counter_api_calls", s.countCalls)
+	m.Set("counter_api_bad_request", s.countCallBadRequest)
+	m.Set("counter_api_forbidden", s.countCallForbidden)
+	m.Set("counter_api_internal_error", s.countCallInternalError)
+	return m
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
@@ -139,11 +162,16 @@ func (s *Server) getIdentity(r *http.Request) (id db.Caller, err error) {
 // identity of the caller. The response returned from fn is serialized
 // as JSON back to the client.
 func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Request, fn func(r REQ, id db.Caller) (RESP, error)) {
+	apiMethod := r.URL.Path
+	s.countCalls.Add(apiMethod, 1)
+
 	if r.Method != "POST" {
+		s.countCallBadRequest.Add(apiMethod, 1)
 		http.Error(w, "only POST requests allowed", http.StatusBadRequest)
 		return
 	}
 	if c := r.Header.Get("Content-Type"); c != "application/json" {
+		s.countCallBadRequest.Add(apiMethod, 1)
 		http.Error(w, "request body must be json", http.StatusBadRequest)
 		return
 	}
@@ -155,34 +183,39 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	// browsers cannot set, so no CSRF or use of JS fetch APIs can
 	// satisfy this condition.
 	if h := r.Header.Get("Sec-X-Tailscale-No-Browsers"); h != "setec" {
+		s.countCallForbidden.Add(apiMethod, 1)
 		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	}
 
 	id, err := s.getIdentity(r)
 	if err != nil {
+		s.countCallInternalError.Add(apiMethod, 1)
 		http.Error(w, "unable to identify caller", http.StatusInternalServerError)
 		return
 	}
 
 	var req REQ
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Print(err)
+		s.countCallBadRequest.Add(apiMethod, 1)
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
 
 	resp, err := fn(req, id)
 	if errors.Is(err, db.ErrAccessDenied) {
+		s.countCallForbidden.Add(apiMethod, 1)
 		http.Error(w, "access denied", http.StatusForbidden)
 		return
 	} else if err != nil {
+		s.countCallInternalError.Add(apiMethod, 1)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
 	bs, err := json.Marshal(resp)
 	if err != nil {
+		s.countCallInternalError.Add(apiMethod, 1)
 		http.Error(w, "failed to encode respnse", http.StatusInternalServerError)
 		return
 	}
