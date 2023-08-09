@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"expvar"
 	"flag"
 	"fmt"
 	"io"
@@ -183,7 +184,7 @@ func runServer(ctx context.Context, args []string) error {
 		return fmt.Errorf("opening audit log: %w", err)
 	}
 
-	_, err = server.New(server.Config{
+	srv, err := server.New(server.Config{
 		DBPath:   filepath.Join(serverArgs.StateDir, "database"),
 		Key:      kek,
 		AuditLog: audit,
@@ -193,6 +194,7 @@ func runServer(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("initializing setec server: %v", err)
 	}
+	expvar.Publish("setec_server", srv.Metrics())
 
 	l80, err := s.Listen("tcp", ":80")
 	if err != nil {
