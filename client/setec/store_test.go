@@ -189,6 +189,21 @@ func TestCachedStore(t *testing.T) {
 	if got := mc.String(); got != newCache {
 		t.Errorf("Cache value:\ngot  %#q\nwant %#q", got, newCache)
 	}
+
+	// Basic consistency checks on metrics.
+	t.Run("VerifyMetrics", func(t *testing.T) {
+		m := st.Metrics()
+		check := func(name, want string) {
+			if metric := m.Get(name); metric == nil {
+				t.Errorf("Metric %q not found", name)
+			} else if got := metric.String(); got != want {
+				t.Errorf("Metric %q: got %q, want %q", name, got, want)
+			}
+		}
+		check("counter_poll_initiated", "1")
+		check("counter_poll_errors", "0")
+		check("counter_secret_fetch", "2")
+	})
 }
 
 func TestBadCache(t *testing.T) {

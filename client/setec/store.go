@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"expvar"
 	"fmt"
 	"log"
 	"math/rand"
@@ -37,7 +38,22 @@ type Store struct {
 	cancel context.CancelFunc // stops the polling task
 	done   <-chan struct{}    // closed when the poller is finished
 
-	// TODO(creachadair): Add metrics.
+	// Metrics
+	countPolls       expvar.Int    // polls initiated
+	countPollErrors  expvar.Int    // errors in polling the service
+	countSecretFetch expvar.Int    // count of secret value fetches
+	latestPoll       expvar.String // RFC3339Nano, in UTC
+}
+
+// Metrics returns a map of metrics for s. The caller is responsible for
+// publishing the map to the metrics exporter.
+func (s *Store) Metrics() *expvar.Map {
+	m := new(expvar.Map)
+	m.Set("counter_poll_initiated", &s.countPolls)
+	m.Set("counter_poll_errors", &s.countPollErrors)
+	m.Set("counter_secret_fetch", &s.countSecretFetch)
+	m.Set("timestamp_latest_poll", &s.latestPoll)
+	return m
 }
 
 // StoreConfig is the configuration for Store.
@@ -185,6 +201,7 @@ func (s *Store) Secret(name string) Secret {
 		f = func() []byte {
 			s.active.RLock()
 			defer s.active.RUnlock()
+			s.countSecretFetch.Add(1)
 			return s.active.m[name].Value
 		}
 		s.active.f[name] = f
@@ -244,8 +261,11 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 			}
 			return
 		case <-doPoll:
+			s.countPolls.Add(1)
+			s.latestPoll.Set(time.Now().Format(time.RFC3339Nano))
 			updates := make(map[string]*api.SecretValue)
 			if err := s.poll(ctx, updates); err != nil {
+				s.countPollErrors.Add(1)
 				s.logf("[store] update poll failed: %v (continuing)", err)
 			}
 			if err := s.applyUpdates(updates); err != nil {
