@@ -19,6 +19,7 @@ import (
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"tailscale.com/client/tailscale/apitype"
+	"tailscale.com/metrics"
 	"tailscale.com/tailcfg"
 )
 
@@ -45,10 +46,10 @@ type Server struct {
 	whois func(context.Context, string) (*apitype.WhoIsResponse, error)
 
 	// Metrics
-	countCalls             expvar.Map // :: method name → count
-	countCallBadRequest    expvar.Map // :: method name → count
-	countCallForbidden     expvar.Map // :: method name → count
-	countCallInternalError expvar.Map // :: method name → count
+	countCalls             *metrics.LabelMap // :: method name → count
+	countCallBadRequest    *metrics.LabelMap // :: method name → count
+	countCallForbidden     *metrics.LabelMap // :: method name → count
+	countCallInternalError *metrics.LabelMap // :: method name → count
 }
 
 // New creates a secret server and makes it ready to serve.
@@ -61,6 +62,11 @@ func New(cfg Config) (*Server, error) {
 	ret := &Server{
 		db:    db,
 		whois: cfg.WhoIs,
+
+		countCalls:             &metrics.LabelMap{Label: "method"},
+		countCallBadRequest:    &metrics.LabelMap{Label: "method"},
+		countCallForbidden:     &metrics.LabelMap{Label: "method"},
+		countCallInternalError: &metrics.LabelMap{Label: "method"},
 	}
 	cfg.Mux.HandleFunc("/api/list", ret.list)
 	cfg.Mux.HandleFunc("/api/get", ret.get)
@@ -74,11 +80,11 @@ func New(cfg Config) (*Server, error) {
 // Metrics returns a collection of metrics for s. THe caller is responsible for
 // publishing the result to the metrics exporter.
 func (s *Server) Metrics() expvar.Var {
-	m := new(expvar.Map)
-	m.Set("counter_api_calls", &s.countCalls)
-	m.Set("counter_api_bad_request", &s.countCallBadRequest)
-	m.Set("counter_api_forbidden", &s.countCallForbidden)
-	m.Set("counter_api_internal_error", &s.countCallInternalError)
+	m := new(metrics.Set)
+	m.Set("counter_api_calls", s.countCalls)
+	m.Set("counter_api_bad_request", s.countCallBadRequest)
+	m.Set("counter_api_forbidden", s.countCallForbidden)
+	m.Set("counter_api_internal_error", s.countCallInternalError)
 	return m
 }
 
