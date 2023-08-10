@@ -346,9 +346,6 @@ func (s *Store) initializeActive(ctx context.Context) error {
 		}
 
 		// Otherwise, wait a bit and try again, with gentle backoff.
-		//
-		// TODO(creachadair): Maybe be more discriminating about which errors we
-		// will retry for. Also maybe log when we retry.
 		sleepFor(ctx, retryWait)
 		if retryWait < 4*time.Second {
 			retryWait += retryWait // caps at 4096ms
