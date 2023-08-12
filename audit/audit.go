@@ -6,6 +6,7 @@ package audit
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"math/rand"
 	"net/netip"
@@ -101,13 +102,12 @@ func (l *Writer) Sync() error {
 // Close closes the Writer if the writer was created with a sink that
 // implements io.Closer, or else does nothing successfully.
 func (l *Writer) Close() error {
-	if err := l.Sync(); err != nil {
-		return err
-	}
+	serr := l.Sync()
+	var cerr error
 	if c, ok := l.w.(io.Closer); ok {
-		return c.Close()
+		cerr = c.Close()
 	}
-	return nil
+	return errors.Join(serr, cerr)
 }
 
 type syncer interface {
