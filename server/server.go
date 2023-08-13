@@ -124,7 +124,8 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-const aclCap tailcfg.PeerCapability = "https://tailscale.com/cap/secrets"
+// ACLCap is the capability name used for setec ACL permissions.
+const ACLCap tailcfg.PeerCapability = "https://tailscale.com/cap/secrets"
 
 // getIdentity extracts identity and permissions from an HTTP request.
 func (s *Server) getIdentity(r *http.Request) (id db.Caller, err error) {
@@ -149,7 +150,7 @@ func (s *Server) getIdentity(r *http.Request) (id db.Caller, err error) {
 	id.Principal.IP = addrPort.Addr()
 	id.Principal.Hostname = who.Node.Name
 
-	id.Permissions, err = tailcfg.UnmarshalCapJSON[acl.Rule](who.CapMap, aclCap)
+	id.Permissions, err = tailcfg.UnmarshalCapJSON[acl.Rule](who.CapMap, ACLCap)
 	if err != nil {
 		return db.Caller{}, fmt.Errorf("unmarshaling peer capabilities: %w", err)
 	}
