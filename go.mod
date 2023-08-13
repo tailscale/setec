@@ -5,11 +5,10 @@ go 1.21
 require (
 	github.com/google/go-cmp v0.5.9
 	github.com/peterbourgon/ff/v3 v3.3.0
-	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a
 	github.com/tink-crypto/tink-go/v2 v2.0.0
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
 	golang.org/x/term v0.10.0
-	tailscale.com v1.1.1-0.20230802164427-ab7749aed7ba
+	tailscale.com v1.1.1-0.20230812230958-239899380412
 )
 
 require (
@@ -33,6 +32,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/coreos/go-iptables v0.6.0 // indirect
+	github.com/dblohm7/wingoes v0.0.0-20230803162905-5c6286bb8c6e // indirect
 	github.com/fxamacker/cbor/v2 v2.4.0 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
@@ -46,7 +46,7 @@ require (
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/native v1.1.1-0.20230202152459-5c7d0dd6ab86 // indirect
 	github.com/jsimonetti/rtnetlink v1.3.2 // indirect
-	github.com/klauspost/compress v1.16.5 // indirect
+	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/kortschak/wol v0.0.0-20200729010619-da482cc4850a // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/mdlayher/genetlink v1.3.2 // indirect
