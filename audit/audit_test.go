@@ -6,6 +6,7 @@ package audit_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/netip"
 	"testing"
 
@@ -14,9 +15,9 @@ import (
 )
 
 func TestWriter(t *testing.T) {
-	var out bytes.Buffer
+	out := new(testWriter)
 
-	w := audit.New(&out)
+	w := audit.New(out)
 
 	entries := []*audit.Entry{
 		{
@@ -54,7 +55,18 @@ func TestWriter(t *testing.T) {
 		}
 	}
 
-	dec := json.NewDecoder(&out)
+	// Verify that close properly calls both Sync and Close if they are
+	// implemented.
+	out.syncErr = errors.New("sync failed")
+	w.Close()
+	if !out.synced {
+		t.Error("After Close: Sync was not called")
+	}
+	if !out.closed {
+		t.Errorf("After Close: Close was not called")
+	}
+
+	dec := json.NewDecoder(&out.Buffer)
 	var got []*audit.Entry
 	for i := 0; i < len(entries); i++ {
 		var ent *audit.Entry
@@ -68,5 +80,14 @@ func TestWriter(t *testing.T) {
 		t.Fatalf("wrong audit log data on read-back (-got+want):\n%s", diff)
 	}
 }
+
+type testWriter struct {
+	bytes.Buffer
+	syncErr        error
+	synced, closed bool
+}
+
+func (t *testWriter) Sync() error  { t.synced = true; return t.syncErr }
+func (t *testWriter) Close() error { t.closed = true; return nil }
 
 func addrEqual(x, y netip.Addr) bool { return x == y }
