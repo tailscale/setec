@@ -6,23 +6,19 @@ package db_test
 import (
 	"bytes"
 	"io"
-	"net/netip"
 	"os"
-	"path/filepath"
 	"strconv"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/db"
+	"github.com/tailscale/setec/db/dbtest"
 	"github.com/tailscale/setec/types/api"
-	"github.com/tink-crypto/tink-go/v2/testutil"
-	"github.com/tink-crypto/tink-go/v2/tink"
 )
 
 func TestCreate(t *testing.T) {
-	tdb := newTestDB(t)
+	tdb := dbtest.NewDB(t, nil)
 
 	// Verify that the DB was created, and save its bytes to verify
 	// that the next open just reads, without mutation.
@@ -31,7 +27,7 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("reading back database: %v", err)
 	}
 
-	if _, err = db.Open(tdb.Path, tdb.KEK, audit.New(io.Discard)); err != nil {
+	if _, err = db.Open(tdb.Path, tdb.Key, audit.New(io.Discard)); err != nil {
 		t.Fatalf("opening test DB: %v", err)
 	}
 
@@ -45,44 +41,9 @@ func TestCreate(t *testing.T) {
 	}
 }
 
-type testDB struct {
-	Path string
-	DB   *db.DB
-	KEK  tink.AEAD
-}
-
-func newTestDB(t *testing.T) *testDB {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "test.db")
-	aead := &testutil.DummyAEAD{
-		Name: "TestKV-" + t.Name(),
-	}
-	database, err := db.Open(path, aead, audit.New(io.Discard))
-	if err != nil {
-		t.Fatalf("creating test DB: %v", err)
-	}
-	return &testDB{path, database, aead}
-}
-
-func superuser() db.Caller {
-	return db.Caller{
-		Principal: audit.Principal{
-			User:     "flynn",
-			IP:       netip.MustParseAddr("1.2.3.4"),
-			Hostname: "mcp",
-		},
-		Permissions: acl.Rules{
-			acl.Rule{
-				Action: []acl.Action{acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete},
-				Secret: []acl.Secret{"*"},
-			},
-		},
-	}
-}
-
 func TestList(t *testing.T) {
-	d := newTestDB(t)
-	id := superuser()
+	d := dbtest.NewDB(t, nil)
+	id := d.Superuser
 
 	checkList := func(d *db.DB, want []*api.SecretInfo) {
 		t.Helper()
@@ -95,12 +56,10 @@ func TestList(t *testing.T) {
 		}
 	}
 
-	checkList(d.DB, []*api.SecretInfo(nil))
+	checkList(d.Actual, []*api.SecretInfo(nil))
 
-	if _, err := d.DB.Put(id, "test", []byte("foo")); err != nil {
-		t.Fatalf("putting secret: %v", err)
-	}
-	checkList(d.DB, []*api.SecretInfo{
+	d.MustPut(id, "test", "foo")
+	checkList(d.Actual, []*api.SecretInfo{
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1},
@@ -108,10 +67,8 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put(id, "test", []byte("bar")); err != nil {
-		t.Fatalf("putting secret: %v", err)
-	}
-	checkList(d.DB, []*api.SecretInfo{
+	d.MustPut(id, "test", "bar")
+	checkList(d.Actual, []*api.SecretInfo{
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -119,10 +76,8 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if _, err := d.DB.Put(id, "test2", []byte("quux")); err != nil {
-		t.Fatalf("putting secret: %v", err)
-	}
-	checkList(d.DB, []*api.SecretInfo{
+	d.MustPut(id, "test2", "quux")
+	checkList(d.Actual, []*api.SecretInfo{
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -135,10 +90,8 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	if err := d.DB.SetActiveVersion(id, "test", api.SecretVersion(2)); err != nil {
-		t.Fatalf("setting active version: %v", err)
-	}
-	checkList(d.DB, []*api.SecretInfo{
+	d.MustSetActiveVersion(id, "test", 2)
+	checkList(d.Actual, []*api.SecretInfo{
 		{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
@@ -151,7 +104,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	d2, err := db.Open(d.Path, d.KEK, audit.New(io.Discard))
+	d2, err := db.Open(d.Path, d.Key, audit.New(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}
@@ -170,52 +123,38 @@ func TestList(t *testing.T) {
 }
 
 func TestGet(t *testing.T) {
-	d := newTestDB(t)
-	id := superuser()
+	d := dbtest.NewDB(t, nil)
+	id := d.Superuser
 
 	seen := map[api.SecretVersion][]byte{}
 	for i := 0; i < 10; i++ {
-		s := []byte(strconv.Itoa(i))
-		ver, err := d.DB.Put(id, "test", s)
-		if err != nil {
-			t.Fatalf("putting secret %d: %v", i, err)
-		}
+		s := strconv.Itoa(i)
+		ver := d.MustPut(id, "test", s)
 		if seen[ver] != nil {
 			t.Fatalf("multiple puts returned version %d", i)
 		}
-		seen[ver] = s
+		seen[ver] = []byte(s)
 	}
 
-	sec, err := d.DB.Get(id, "test")
-	if err != nil {
-		t.Fatalf("getting secret: %v", err)
-	}
+	sec := d.MustGet(id, "test")
 	if want := []byte("0"); !bytes.Equal(sec.Value, want) {
 		t.Fatalf("active secret is %q, want %q", sec.Value, want)
 	}
 
 	for v, want := range seen {
-		sec, err = d.DB.GetVersion(id, "test", v)
-		if err != nil {
-			t.Fatalf("getting secret version %d: %v", v, err)
-		}
+		sec := d.MustGetVersion(id, "test", v)
 		if !bytes.Equal(sec.Value, want) {
 			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 
-		if err := d.DB.SetActiveVersion(id, "test", v); err != nil {
-			t.Fatalf("setting %d as active: %v", v, err)
-		}
-		sec, err = d.DB.Get(id, "test")
-		if err != nil {
-			t.Fatalf("getting active secret: %v", err)
-		}
+		d.MustSetActiveVersion(id, "test", v)
+		sec = d.MustGet(id, "test")
 		if !bytes.Equal(sec.Value, want) {
 			t.Fatalf("active secret is %q, want %q", sec.Value, want)
 		}
 	}
 
-	d2, err := db.Open(d.Path, d.KEK, audit.New(io.Discard))
+	d2, err := db.Open(d.Path, d.Key, audit.New(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}
@@ -232,24 +171,14 @@ func TestGet(t *testing.T) {
 }
 
 func TestPut(t *testing.T) {
-	d := newTestDB(t)
-	id := superuser()
+	d := dbtest.NewDB(t, nil)
+	id := d.Superuser
 
 	const testName = "test-secret-name"
-	mustPut := func(v []byte) api.SecretVersion {
-		t.Helper()
-		id, err := d.DB.Put(id, testName, v)
-		if err != nil {
-			t.Fatalf("Put %q: unexpected error: %v", testName, err)
-		}
-		return id
-	}
 	mustGetVersion := func(version api.SecretVersion, want string) *api.SecretValue {
 		t.Helper()
-		got, err := d.DB.GetVersion(id, testName, version)
-		if err != nil {
-			t.Fatalf("Get %q version %v: unexpected error: %v", testName, id, err)
-		} else if !bytes.Equal(got.Value, []byte(want)) {
+		got := d.MustGetVersion(id, testName, version)
+		if !bytes.Equal(got.Value, []byte(want)) {
 			t.Fatalf("Get %q version %v: got %q, want %q", testName, id, got.Value, want)
 		}
 		return got
@@ -259,22 +188,22 @@ func TestPut(t *testing.T) {
 	testValue2 := []byte("test value 2")
 
 	// Putting a new value should assign a fresh version.
-	ver1 := mustPut(testValue1)
+	ver1 := d.MustPut(id, testName, string(testValue1))
 
 	// Re-putting the same value should report the same version.
-	ver2 := mustPut(testValue1)
+	ver2 := d.MustPut(id, testName, string(testValue1))
 	if ver1 != ver2 {
 		t.Fatalf("Put %q again: got %v, want %v", testName, ver2, ver1)
 	}
 
 	// Putting a different value must give a new version.
-	ver3 := mustPut(testValue2)
+	ver3 := d.MustPut(id, testName, string(testValue2))
 	if ver3 == ver1 {
 		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, ver3)
 	}
 
 	// Putting the original value gets us a new version again.
-	ver4 := mustPut(testValue1)
+	ver4 := d.MustPut(id, testName, string(testValue1))
 	if ver4 == ver3 {
 		t.Fatalf("Put %q fresh value: got %v, want a new version", testName, ver4)
 	}
