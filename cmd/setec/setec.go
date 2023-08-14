@@ -26,6 +26,7 @@ import (
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/types/api"
+	"github.com/tink-crypto/tink-go-awskms/integration/awskms"
 	"github.com/tink-crypto/tink-go/v2/testutil"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"golang.org/x/term"
@@ -151,8 +152,17 @@ func runServer(ctx context.Context, args []string) error {
 		if serverArgs.KMSKeyName == "" {
 			return errors.New("--kms-key-name must be specified")
 		}
-		// TODO(corp/13375): hook up to cloud KMS, and have a --dev mode.
-		return errors.New("todo: hookup to AWS KMS not implemented yet")
+		// Tink requires prefixing the key identifier with a URI
+		// scheme that identifies the correct backend to use.
+		uri := "aws-kms://" + serverArgs.KMSKeyName
+		kmsClient, err := awskms.NewClientWithOptions(uri)
+		if err != nil {
+			return fmt.Errorf("creating AWS KMS client: %v", err)
+		}
+		kek, err = kmsClient.GetAEAD(uri)
+		if err != nil {
+			return fmt.Errorf("getting KMS key handle: %v", err)
+		}
 	}
 
 	s := &tsnet.Server{
