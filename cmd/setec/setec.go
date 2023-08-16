@@ -55,6 +55,12 @@ func main() {
 		ShortHelp:  "list secrets",
 		Exec:       runList,
 	}
+	infoCmd := &ffcli.Command{
+		Name:       "info",
+		ShortUsage: "setec info [flags] <server> <secret-name>",
+		ShortHelp:  "get secret info",
+		Exec:       runInfo,
+	}
 	getCmd := &ffcli.Command{
 		Name:       "get",
 		ShortUsage: "setec get [flags] <server> <secret-name>",
@@ -90,6 +96,7 @@ func main() {
 		Subcommands: []*ffcli.Command{
 			serverCmd,
 			listCmd,
+			infoCmd,
 			getCmd,
 			putCmd,
 			setActiveCmd,
@@ -266,6 +273,31 @@ func runList(ctx context.Context, args []string) error {
 		}
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Name, s.ActiveVersion, strings.Join(vers, ","))
 	}
+	return tw.Flush()
+}
+
+func runInfo(ctx context.Context, args []string) error {
+	c, args, err := clientFromArgs(args)
+	if err != nil {
+		return err
+	}
+	if len(args) != 1 {
+		return flag.ErrHelp
+	}
+
+	name := args[0]
+	info, err := c.Info(ctx, name)
+	if err != nil {
+		return fmt.Errorf("failed to get secret info: %v", err)
+	}
+	vers := make([]string, 0, len(info.Versions))
+	for _, v := range info.Versions {
+		vers = append(vers, v.String())
+	}
+	tw := tabwriter.NewWriter(os.Stdout, 0, 8, 0, '\t', 0)
+	fmt.Fprintf(tw, "Name:\t%s\n", info.Name)
+	fmt.Fprintf(tw, "Active version:\t%s\n", info.ActiveVersion)
+	fmt.Fprintf(tw, "Versions:\t%s\n", strings.Join(vers, ", "))
 	return tw.Flush()
 }
 
