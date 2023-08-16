@@ -232,7 +232,7 @@ func TestDelete(t *testing.T) {
 	id := d.Superuser
 
 	const testName = "test-secret-name"
-	d.MustPut(id, testName, "ver1")
+	v1 := d.MustPut(id, testName, "ver1")
 
 	// Case 1: Deleting a secret that isn't there should succeed.
 	if err := d.Actual.Delete(id, "nonesuch"); err != nil {
@@ -242,6 +242,11 @@ func TestDelete(t *testing.T) {
 	// Case 2: Deleting a secret that exists should succeed.
 	if err := d.Actual.Delete(id, testName); err != nil {
 		t.Errorf("Delete %q: got %v, want nil", testName, err)
+	}
+
+	// Case 3: After deleting, we cannot retrieve the secret.
+	if got, err := d.Actual.GetVersion(id, testName, v1); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("GetVersion %v: got (%v, %v), want %v", v1, got, err, db.ErrNotFound)
 	}
 }
 
