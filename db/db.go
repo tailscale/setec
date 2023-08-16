@@ -228,3 +228,42 @@ func (db *DB) activateConfigLocked(name string, version api.SecretVersion) error
 		return fmt.Errorf("unknown config value %q", name)
 	}
 }
+
+// DeleteVersion deletes the specified version of a secret.
+// It reports an error without change if version is the active version.
+func (db *DB) DeleteVersion(caller Caller, name string, version api.SecretVersion) error {
+	if err := db.checkAndLog(caller, acl.ActionDelete, name, version); err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
+		return db.deleteConfigVersionLocked(cfg, version)
+	}
+	return db.kv.deleteVersion(name, version)
+}
+
+func (db *DB) deleteConfigVersionLocked(name string, version api.SecretVersion) error {
+	return fmt.Errorf("unknown config value %q", name)
+}
+
+// Delete deletes all the versions of a secret. If the specified secret does
+// not exist, this is a no-op without error, provided the caller has access to
+// delete things at all.
+func (db *DB) Delete(caller Caller, name string) error {
+	if err := db.checkAndLog(caller, acl.ActionDelete, name, 0); err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
+		return db.deleteConfigLocked(cfg)
+	}
+	return db.kv.deleteSecret(name)
+}
+
+func (db *DB) deleteConfigLocked(name string) error {
+	return fmt.Errorf("unknown config value %q", name)
+}

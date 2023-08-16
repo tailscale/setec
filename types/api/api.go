@@ -77,3 +77,19 @@ type SetActiveRequest struct {
 	// Version is the version to make active.
 	Version SecretVersion
 }
+
+// DeleteRequest is a request to delete all versions of a secret.
+type DeleteRequest struct {
+	// Name is the name of the secret to delete.
+	Name string
+}
+
+// DeleteVersionRequest is a request to delete a single version of a secret.
+type DeleteVersionRequest struct {
+	// Name is the name of the secret to delete a version from.
+	Name string
+
+	// Version is the version to delete; 0 is invalid for this request as the
+	// active version cannot be deleted.
+	Version SecretVersion
+}

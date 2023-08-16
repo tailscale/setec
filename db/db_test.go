@@ -5,6 +5,7 @@ package db_test
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"strconv"
@@ -224,6 +225,56 @@ func TestPut(t *testing.T) {
 
 	mustGetVersion(ver1, "test value 1")
 	mustGetVersion(ver3, "test value 2")
+}
+
+func TestDelete(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	id := d.Superuser
+
+	const testName = "test-secret-name"
+	d.MustPut(id, testName, "ver1")
+
+	// Case 1: Deleting a secret that isn't there should succeed.
+	if err := d.Actual.Delete(id, "nonesuch"); err != nil {
+		t.Errorf("Delete nonesuch: unexpected error: %v", err)
+	}
+
+	// Case 2: Deleting a secret that exists should succeed.
+	if err := d.Actual.Delete(id, testName); err != nil {
+		t.Errorf("Delete %q: got %v, want nil", testName, err)
+	}
+}
+
+func TestDeleteVersion(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	id := d.Superuser
+
+	const testName = "test-secret-name"
+	v1 := d.MustPut(id, testName, "version1") // active
+	v2 := d.MustPut(id, testName, "version2")
+
+	// Case 1: Deleting a non-existent version fails.
+	if err := d.Actual.DeleteVersion(id, testName, 1000); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("DeleteVersion 1000: got %v, want %v", err, db.ErrNotFound)
+	}
+
+	// Case 2: Deleting the active version fails.
+	if err := d.Actual.DeleteVersion(id, testName, v1); err == nil {
+		t.Errorf("DeleteVersion %v: got nil, want error", v1)
+	}
+
+	// Case 3: Deleting an inactive version succeeds.
+	if err := d.Actual.DeleteVersion(id, testName, v2); err != nil {
+		t.Errorf("DeleteVersion %v: got %v, want nil", v2, err)
+	}
+
+	// Case 4: The deleted version can no longer be retrieved.
+	if got, err := d.Actual.GetVersion(id, testName, v2); !errors.Is(err, db.ErrNotFound) {
+		t.Errorf("GetVersion %v: got (%v, %v), want error %v", v2, got, err, db.ErrNotFound)
+	}
+
+	// Case 5: The active version still exists.
+	d.MustGetVersion(id, testName, v1)
 }
 
 // TODO(corp/13375): tests that verify ACL enforcement. Not
