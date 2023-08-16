@@ -40,6 +40,7 @@ This prevents browser scripts from initiating calls to the service.
 
   **Example requests:**
   ```json
+  {"Name":"example"}                -- fetch the active version
   {"Name":"example","Version":0}    -- fetch the active version
   {"Name":"example","Version":15}   -- fetch the specified version
   ```
