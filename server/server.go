@@ -73,6 +73,8 @@ func New(cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/info", ret.info)
 	cfg.Mux.HandleFunc("/api/put", ret.put)
 	cfg.Mux.HandleFunc("/api/set-active", ret.setActive)
+	cfg.Mux.HandleFunc("/api/delete", ret.deleteSecret)
+	cfg.Mux.HandleFunc("/api/delete-version", ret.deleteVersion)
 
 	return ret, nil
 }
@@ -121,6 +123,20 @@ func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil
+	})
+}
+
+func (s *Server) deleteVersion(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.DeleteVersionRequest, id db.Caller) (struct{}, error) {
+		err := s.db.DeleteVersion(id, req.Name, req.Version)
+		return struct{}{}, err
+	})
+}
+
+func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.DeleteRequest, id db.Caller) (struct{}, error) {
+		err := s.db.Delete(id, req.Name)
+		return struct{}{}, err
 	})
 }
 

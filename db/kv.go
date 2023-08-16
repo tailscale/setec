@@ -359,3 +359,40 @@ func (kv *kv) setActive(name string, version api.SecretVersion) error {
 	}
 	return nil
 }
+
+// deleteVersion deletes the specified version of a secret.
+func (kv *kv) deleteVersion(name string, version api.SecretVersion) error {
+	if version == api.SecretVersionDefault {
+		return errors.New("invalid version")
+	}
+	secret := kv.secrets[name]
+	if secret == nil {
+		return fmt.Errorf("secret %q: %w", name, ErrNotFound)
+	} else if version == secret.ActiveVersion {
+		return errors.New("cannot delete active version")
+	}
+	old, ok := secret.Versions[version]
+	if !ok {
+		return fmt.Errorf("version %v: %w", version, ErrNotFound)
+	}
+	delete(secret.Versions, version)
+	if err := kv.save(); err != nil {
+		secret.Versions[version] = old
+		return err
+	}
+	return nil
+}
+
+// deleteSecret deletes all versions of a secret.
+func (kv *kv) deleteSecret(name string) error {
+	secret := kv.secrets[name]
+	if secret == nil {
+		return nil // the secret (already) has no version
+	}
+	delete(kv.secrets, name)
+	if err := kv.save(); err != nil {
+		kv.secrets[name] = secret
+		return err
+	}
+	return nil
+}
