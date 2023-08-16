@@ -107,7 +107,7 @@ func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secre
 }
 
 // List returns secret metadata for all secrets on which at least one
-// member of 'from' has acl.ActionList permissions.
+// member of 'from' has acl.ActionInfo permissions.
 func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
