@@ -39,10 +39,10 @@ type Store struct {
 	done   <-chan struct{}    // closed when the poller is finished
 
 	// Metrics
-	countPolls       expvar.Int    // polls initiated
-	countPollErrors  expvar.Int    // errors in polling the service
-	countSecretFetch expvar.Int    // count of secret value fetches
-	latestPoll       expvar.String // RFC3339Nano, in UTC
+	countPolls       expvar.Int   // polls initiated
+	countPollErrors  expvar.Int   // errors in polling the service
+	countSecretFetch expvar.Int   // count of secret value fetches
+	latestPoll       expvar.Float // fractional seconds since Unix epoch, UTC
 }
 
 // Metrics returns a map of metrics for s. The caller is responsible for
@@ -262,7 +262,7 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 			return
 		case <-doPoll:
 			s.countPolls.Add(1)
-			s.latestPoll.Set(time.Now().Format(time.RFC3339Nano))
+			s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
 			updates := make(map[string]*api.SecretValue)
 			if err := s.poll(ctx, updates); err != nil {
 				s.countPollErrors.Add(1)
