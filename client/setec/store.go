@@ -262,7 +262,7 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 			return
 		case <-doPoll:
 			s.countPolls.Add(1)
-			s.latestPoll.Set(float64(time.Now().Unix()))
+			s.latestPoll.Set(float64(time.Now().UTC().Unix()))
 			updates := make(map[string]*api.SecretValue)
 			if err := s.poll(ctx, updates); err != nil {
 				s.countPollErrors.Add(1)
