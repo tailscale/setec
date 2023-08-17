@@ -101,7 +101,7 @@ func (c StoreConfig) logger() logger.Logf {
 
 func (c StoreConfig) pollInterval() time.Duration {
 	if c.PollInterval <= 0 {
-		return 1 * time.Minute
+		return 1 * time.Hour
 	}
 	return c.PollInterval
 }
