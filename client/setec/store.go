@@ -195,9 +195,6 @@ func (s *Store) Close() error {
 func (s *Store) Secret(name string) Secret {
 	s.active.Lock()
 	defer s.active.Unlock()
-	if _, ok := s.active.m[name]; !ok {
-		return nil // unknown secret
-	}
 	return s.secretLocked(name)
 }
 
