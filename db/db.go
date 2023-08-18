@@ -166,6 +166,32 @@ func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
 	return db.kv.get(name)
 }
 
+// GetConditional returns a secret's active value if it is different from oldVersion.
+// If the active version is the same as oldVersion, it reports api.ErrValueNotChanged.
+func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
+	// This case is special in that we only log an access if the condition
+	// succeeds and we report a fresh value to the caller. However, we still
+	// want a log if authorization fails.
+	if !caller.Permissions.Allow(acl.ActionGet, name) {
+		return nil, db.checkAndLog(caller, acl.ActionGet, name, 0)
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	sv, err := db.kv.get(name)
+	if err != nil {
+		return nil, err
+	} else if sv.Version == oldVersion {
+		return nil, api.ErrValueNotChanged
+	}
+
+	// Reaching here, we have a value we need to deliver back to the caller, and
+	// we must write an audit log. We already know it's authorized.
+	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
+		return nil, err
+	}
+	return sv, nil
+}
+
 // GetVersion returns a secret's value at a specific version.
 func (db *DB) GetVersion(caller Caller, name string, version api.SecretVersion) (*api.SecretValue, error) {
 	if err := db.checkAndLog(caller, acl.ActionGet, name, version); err != nil {
