@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html><head>
+    <title>Setec Secrets Service</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" type="text/css" href="static/style.css" />
+    <style>
+    </style>
+</head><body>
+
+    <h1>Secrets List</h1>
+    <table>
+        <tr><th>Name</th><th>Versions</th></tr>
+        {{- range $info := .}}
+        <tr>
+            <td>{{$info.Name}}</td>
+            <td>
+                {{- range $i, $v := $info.Versions}}
+
+                {{- if (eq $v $info.ActiveVersion) -}}
+                <b>{{.}}</b>
+                {{- else}}
+                {{- .}}
+                {{- end}}
+
+                {{- if (not (lastSecretVersion $i $info.Versions)) }}, {{ end -}}
+
+                {{- end}}
+            </td>
+        </tr>
+        {{- end}}
+    </table>
+
+    
+</body>
+</html>
