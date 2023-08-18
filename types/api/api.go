@@ -5,7 +5,14 @@
 // server.
 package api
 
-import "strconv"
+import (
+	"errors"
+	"strconv"
+)
+
+// ErrValueNotChanged is a sentinel error reported by Get requests when the
+// secret value has not changed from the specified value.
+var ErrValueNotChanged = errors.New("value not changed")
 
 // SecretVersion is the version of a secret.
 //
@@ -50,9 +57,19 @@ type ListRequest struct{}
 type GetRequest struct {
 	// Name is the name of the secret to fetch.
 	Name string
-	// Version is the version to fetch, or SecretVersionDefault to let
-	// the server pick a version.
+
+	// Version is the version to fetch, or SecretVersionDefault to specify that
+	// the server should return the latest active version.
 	Version SecretVersion
+
+	// UpdateIfChanged, if true, instructs the server to return the latest
+	// active version of the secret if (and only if) the latest active version
+	// is different from Version. If the latest active version is equal to
+	// Version, the server reports 304 Not Modified and returns no value.
+	//
+	// If Version == SecretVersionDefault, this flag is ignored and the latest
+	// active version is returned unconditionally.
+	UpdateIfChanged bool
 }
 
 // InfoRequest is a request for secret metadata.

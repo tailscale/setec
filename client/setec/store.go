@@ -225,8 +225,10 @@ func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) e
 	defer s.active.RUnlock()
 	var errs []error
 	for name, cv := range s.active.m {
-		sv, err := s.client.Get(ctx, name)
-		if err != nil {
+		sv, err := s.client.GetIfChanged(ctx, name, cv.Version)
+		if errors.Is(err, api.ErrValueNotChanged) {
+			continue // all is well, but nothing to update
+		} else if err != nil {
 			errs = append(errs, err)
 			continue
 		}
