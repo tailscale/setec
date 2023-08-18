@@ -264,7 +264,7 @@ func runList(ctx context.Context, args []string) error {
 		return fmt.Errorf("failed to list secrets: %v", err)
 	}
 
-	tw := tabwriter.NewWriter(os.Stdout, 0, 8, 0, '\t', 0)
+	tw := newTabWriter(os.Stdout)
 	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\n")
 	for _, s := range secrets {
 		vers := make([]string, 0, len(s.Versions))
@@ -294,7 +294,7 @@ func runInfo(ctx context.Context, args []string) error {
 	for _, v := range info.Versions {
 		vers = append(vers, v.String())
 	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 8, 0, '\t', 0)
+	tw := newTabWriter(os.Stdout)
 	fmt.Fprintf(tw, "Name:\t%s\n", info.Name)
 	fmt.Fprintf(tw, "Active version:\t%s\n", info.ActiveVersion)
 	fmt.Fprintf(tw, "Versions:\t%s\n", strings.Join(vers, ", "))
@@ -409,4 +409,8 @@ func runSetActive(ctx context.Context, args []string) error {
 	}
 
 	return nil
+}
+
+func newTabWriter(w io.Writer) *tabwriter.Writer {
+	return tabwriter.NewWriter(w, 0, 4, 1, ' ', 0)
 }
