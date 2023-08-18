@@ -5,70 +5,15 @@ package setec_test
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/tailscale/setec/client/setec"
-	"github.com/tailscale/setec/types/api"
+	"github.com/tailscale/setec/setectest"
 	"tailscale.com/types/logger"
 )
-
-// testServer is a trivial fake for the parts of the server required by the
-// store implementation.
-type testServer struct {
-	mu   sync.Mutex
-	data map[string][]*api.SecretValue
-}
-
-// Add adds data as the active version of the named secret.
-func (ts *testServer) Add(name, data string, version api.SecretVersion) {
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	if ts.data == nil {
-		ts.data = make(map[string][]*api.SecretValue)
-	}
-	ts.data[name] = append([]*api.SecretValue{{
-		Value:   []byte(data),
-		Version: version,
-	}}, ts.data[name]...)
-}
-
-func (ts *testServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/api/get" {
-		http.Error(w, "unsupported request", http.StatusInternalServerError)
-		return
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	var req api.GetRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	ts.mu.Lock()
-	defer ts.mu.Unlock()
-	svs, ok := ts.data[req.Name]
-	if ok {
-		for _, sv := range svs {
-			if req.Version == 0 || req.Version == sv.Version {
-				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(&sv)
-				return
-			}
-		}
-	}
-	http.Error(w, fmt.Sprintf("%q not found", req.Name), http.StatusBadRequest)
-}
 
 func checkSecretValue(t *testing.T, st *setec.Store, name, want string) setec.Secret {
 	t.Helper()
@@ -92,16 +37,17 @@ func mustMemCache(t *testing.T, data string) *setec.MemCache {
 }
 
 func TestStore(t *testing.T) {
-	ts := new(testServer)
-	ts.Add("alpha", "ok", 1)
-	ts.Add("bravo", "yes", 1)
-	ts.Add("bravo", "no", 2)
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "alpha", "ok")
+	d.MustPut(d.Superuser, "bravo", "yes")
+	d.MustPut(d.Superuser, "bravo", "no")
 
-	s := httptest.NewServer(ts)
-	defer s.Close()
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
 
 	ctx := context.Background()
-	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	t.Run("NewStore_missingURL", func(t *testing.T) {
 		st, err := setec.NewStore(ctx, setec.StoreConfig{})
@@ -161,7 +107,7 @@ func TestStore(t *testing.T) {
 }
 
 func TestCachedStore(t *testing.T) {
-	const cacheData = `{"alpha":{"Value":"Zm9vYmFy","Version":100}}`
+	const cacheData = `{"alpha":{"Value":"Zm9vYmFy","Version":1}}`
 
 	// Make a poll ticker so we can control the poll schedule.
 	pollTicker := newFakeTicker()
@@ -171,14 +117,18 @@ func TestCachedStore(t *testing.T) {
 
 	// Connect to a service which has a newer value of the same secret, and
 	// verify that initially we see the cached value.
-	ts := new(testServer)
-	ts.Add("alpha", "foobar", 100)
-	ts.Add("alpha", "bazquux", 200)
-	s := httptest.NewServer(ts)
-	defer s.Close()
-	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "alpha", "foobar")
+	v2 := d.MustPut(d.Superuser, "alpha", "bazquux")
+	d.MustSetActiveVersion(d.Superuser, "alpha", v2)
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
 
 	ctx := context.Background()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
 	st, err := setec.NewStore(ctx, setec.StoreConfig{
 		Client:     cli,
 		Secrets:    []string{"alpha"},
@@ -201,7 +151,7 @@ func TestCachedStore(t *testing.T) {
 	}
 
 	// Check that the cache got updated with the new value.
-	const newCache = `{"alpha":{"Value":"YmF6cXV1eA==","Version":200}}`
+	const newCache = `{"alpha":{"Value":"YmF6cXV1eA==","Version":2}}`
 
 	if got := mc.String(); got != newCache {
 		t.Errorf("Cache value:\ngot  %#q\nwant %#q", got, newCache)
@@ -224,12 +174,15 @@ func TestCachedStore(t *testing.T) {
 }
 
 func TestBadCache(t *testing.T) {
-	ts := new(testServer)
-	ts.Add("alpha", "foobar", 100)
-	s := httptest.NewServer(ts)
-	defer s.Close()
-	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "alpha", "foobar")
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
 	ctx := context.Background()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	// Validate that errors in reading and decoding the cache do not prevent the
 	// store from starting up if it is otherwise OK.
@@ -258,12 +211,12 @@ func TestBadCache(t *testing.T) {
 }
 
 func TestSlowInit(t *testing.T) {
-	ts := new(testServer)
-	s := httptest.NewServer(ts)
-	defer s.Close()
+	ts := setectest.NewServer(t, setectest.NewDB(t, nil), nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
 
 	ctx := context.Background()
-	cli := setec.Client{Server: s.URL, DoHTTP: s.Client().Do}
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	errc := make(chan error)
 	checkNotReady := func() {
@@ -272,6 +225,11 @@ func TestSlowInit(t *testing.T) {
 			t.Fatalf("Store should not be ready (err=%v)", err)
 		case <-time.After(time.Millisecond):
 			// OK
+		}
+	}
+	mustPut := func(key, value string) {
+		if _, err := cli.Put(ctx, key, []byte(value)); err != nil {
+			t.Fatalf("Put %q: unexpected error: %v", key, err)
 		}
 	}
 
@@ -290,15 +248,15 @@ func TestSlowInit(t *testing.T) {
 	checkNotReady()
 
 	// A value for one of the secrets arrives, but we still await the other.
-	ts.Add("boo", "go for the eyes", 1)
+	mustPut("boo", "go for the eyes")
 	checkNotReady()
 
 	// A value for an unrelated secret arrives, and does not affect us.
-	ts.Add("dynaheir", "my spell has no effect", 5)
+	mustPut("dynaheir", "my spell has no effect")
 	checkNotReady()
 
 	// A value for the other missing secret arrives.
-	ts.Add("minsc", "full plate and packing steel", 1)
+	mustPut("minsc", "full plate and packing steel")
 
 	// Now the store should become ready.
 	select {

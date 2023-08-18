@@ -56,7 +56,14 @@ func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RE
 	}
 	defer httpResp.Body.Close()
 
-	if httpResp.StatusCode != http.StatusOK {
+	switch httpResp.StatusCode {
+	case http.StatusNotModified:
+		// success: the server reports the value has not changed
+		var zero RESP
+		return zero, api.ErrValueNotChanged
+	case http.StatusOK:
+		// success: fall through to decode the desired response
+	default:
 		errBs, err := io.ReadAll(httpResp.Body)
 		if err != nil {
 			return resp, fmt.Errorf("reading error response body (HTTP status %d): %w", httpResp.StatusCode, err)
@@ -87,6 +94,18 @@ func (c *Client) Get(ctx context.Context, name string) (*api.SecretValue, error)
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
 		Version: api.SecretVersionDefault,
+	})
+}
+
+// GetIfChanged fetches a secret value by name, if the active version on the
+// server is different from oldVersion. If the active version on the server is
+// the same as oldVersion, it reports api.ErrValueNotChanged without returning
+// a secret.
+func (c *Client) GetIfChanged(ctx context.Context, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
+	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
+		Name:            name,
+		Version:         oldVersion,
+		UpdateIfChanged: true,
 	})
 }
 
