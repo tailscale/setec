@@ -33,6 +33,7 @@ type Store struct {
 
 		m map[string]*api.SecretValue // :: secret name → active value
 		f map[string]Secret           // :: secret name → fetch function
+		w map[string][]Watcher        // :: secret name → watchers
 	}
 
 	cancel context.CancelFunc // stops the polling task
@@ -142,6 +143,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	// Initialize the active versions maps.
 	s.active.m = make(map[string]*api.SecretValue)
 	s.active.f = make(map[string]Secret)
+	s.active.w = make(map[string][]Watcher)
 
 	// If we have a cache, try to load data from there first.
 	data, err := s.loadCache()
@@ -193,6 +195,10 @@ func (s *Store) Close() error {
 func (s *Store) Secret(name string) Secret {
 	s.active.Lock()
 	defer s.active.Unlock()
+	return s.secretLocked(name)
+}
+
+func (s *Store) secretLocked(name string) Secret {
 	if _, ok := s.active.m[name]; !ok {
 		return nil // unknown secret
 	}
@@ -207,6 +213,20 @@ func (s *Store) Secret(name string) Secret {
 		s.active.f[name] = f
 	}
 	return f
+}
+
+// Watcher returns a watcher for the named secret. It returns a zero Watcher if
+// name does not correspond to one of the secrets known by s.
+func (s *Store) Watcher(name string) Watcher {
+	s.active.Lock()
+	defer s.active.Unlock()
+	secret := s.secretLocked(name)
+	if secret == nil {
+		return Watcher{}
+	}
+	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
+	s.active.w[name] = append(s.active.w[name], w)
+	return w
 }
 
 // A Secret is a function that fetches the current active value of a secret.
@@ -288,6 +308,11 @@ func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
 	defer s.active.Unlock()
 	for name, sv := range updates {
 		s.active.m[name] = sv
+
+		// Wake up any watchers pending on new values for this secret.
+		for _, w := range s.active.w[name] {
+			w.notify()
+		}
 	}
 	return s.flushCacheLocked()
 }
@@ -355,8 +380,7 @@ func (s *Store) initializeActive(ctx context.Context) error {
 	}
 }
 
-// A PollTicker is used to inject time control in to the polling loop of a
-// store.
+// A Ticker is used to inject time control in to the polling loop of a store.
 type Ticker interface {
 	// Chan returns a channel upon which time values are delivered to signal
 	// that a poll is required.
@@ -376,3 +400,28 @@ type stdTicker struct{ *time.Ticker }
 
 func (s stdTicker) Chan() <-chan time.Time { return s.Ticker.C }
 func (stdTicker) Done()                    {}
+
+// A Watcher monitors the current active value of a secret, and allows the user
+// to be notified when the value of the secret changes.
+type Watcher struct {
+	ready  chan struct{}
+	secret Secret
+}
+
+// Get returns the current active value of the secret.
+func (w Watcher) Get() []byte { return w.secret.Get() }
+
+// Ready returns a channel that delivers a value when the current active
+// version of the secret has changed. The channel is never closed.
+//
+// The ready channel is a level trigger. The Watcher does not queue multiple
+// notifications, and if the caller does not drain the channel subsequent
+// notifications will be dropped.
+func (w Watcher) Ready() <-chan struct{} { return w.ready }
+
+func (w Watcher) notify() {
+	select {
+	case w.ready <- struct{}{}:
+	default:
+	}
+}
