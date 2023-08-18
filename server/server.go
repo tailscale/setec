@@ -99,8 +99,14 @@ func (s *Server) list(w http.ResponseWriter, r *http.Request) {
 func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 	serveJSON(s, w, r, func(req api.GetRequest, id db.Caller) (*api.SecretValue, error) {
 		if req.Version != 0 {
+			if req.UpdateIfChanged {
+				// Case 1: Old version specified, update requested.
+				return s.db.GetConditional(id, req.Name, req.Version)
+			}
+			// Case 2: Explicit version specified, no update.
 			return s.db.GetVersion(id, req.Name, req.Version)
 		}
+		// Case 3: Unconditional fetch of active version.
 		return s.db.Get(id, req.Name)
 	})
 }
@@ -223,6 +229,10 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	if errors.Is(err, db.ErrAccessDenied) {
 		s.countCallForbidden.Add(apiMethod, 1)
 		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	} else if errors.Is(err, api.ErrValueNotChanged) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotModified)
 		return
 	} else if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)
