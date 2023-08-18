@@ -67,6 +67,7 @@ func main() {
 		ShortHelp:  "get a secret",
 		FlagSet: func() *flag.FlagSet {
 			fs := flag.NewFlagSet("get", flag.ExitOnError)
+			fs.BoolVar(&getArgs.IfChanged, "if-changed", false, "get active version if changed from --version")
 			fs.Uint64Var(&getArgs.Version, "version", 0, "secret version to retrieve (default: the active version)")
 			return fs
 		}(),
@@ -302,7 +303,8 @@ func runInfo(ctx context.Context, args []string) error {
 }
 
 var getArgs struct {
-	Version uint64
+	IfChanged bool
+	Version   uint64
 }
 
 func runGet(ctx context.Context, args []string) error {
@@ -319,6 +321,8 @@ func runGet(ctx context.Context, args []string) error {
 	var val *api.SecretValue
 	if getArgs.Version == 0 {
 		val, err = c.Get(ctx, name)
+	} else if getArgs.IfChanged {
+		val, err = c.GetIfChanged(ctx, name, api.SecretVersion(getArgs.Version))
 	} else {
 		val, err = c.GetVersion(ctx, name, api.SecretVersion(getArgs.Version))
 	}
