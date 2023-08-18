@@ -6,10 +6,13 @@ package server
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"expvar"
 	"fmt"
+	"html/template"
+	"log"
 	"net/http"
 	"net/netip"
 
@@ -44,6 +47,7 @@ type Config struct {
 type Server struct {
 	db    *db.DB
 	whois func(context.Context, string) (*apitype.WhoIsResponse, error)
+	tmpl  *template.Template
 
 	// Metrics
 	countCalls             *metrics.LabelMap // :: method name → count
@@ -52,6 +56,12 @@ type Server struct {
 	countCallInternalError *metrics.LabelMap // :: method name → count
 }
 
+//go:embed templates
+var dashboardTemplates embed.FS
+
+//go:embed static
+var staticFiles embed.FS
+
 // New creates a secret server and makes it ready to serve.
 func New(cfg Config) (*Server, error) {
 	db, err := db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
@@ -59,15 +69,27 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("opening DB: %w", err)
 	}
 
+	tmpl := template.New("").Funcs(template.FuncMap{
+		"lastSecretVersion": func(i int, l []api.SecretVersion) bool {
+			return i == len(l)-1
+		},
+	})
+	if _, err := tmpl.ParseFS(dashboardTemplates, "templates/*.html"); err != nil {
+		return nil, fmt.Errorf("parsing dashboard templates: %w", err)
+	}
+
 	ret := &Server{
 		db:    db,
 		whois: cfg.WhoIs,
+		tmpl:  tmpl,
 
 		countCalls:             &metrics.LabelMap{Label: "method"},
 		countCallBadRequest:    &metrics.LabelMap{Label: "method"},
 		countCallForbidden:     &metrics.LabelMap{Label: "method"},
 		countCallInternalError: &metrics.LabelMap{Label: "method"},
 	}
+	cfg.Mux.HandleFunc("/", ret.htmlList)
+	cfg.Mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 	cfg.Mux.HandleFunc("/api/list", ret.list)
 	cfg.Mux.HandleFunc("/api/get", ret.get)
 	cfg.Mux.HandleFunc("/api/info", ret.info)
@@ -88,6 +110,41 @@ func (s *Server) Metrics() expvar.Var {
 	m.Set("counter_api_forbidden", s.countCallForbidden)
 	m.Set("counter_api_internal_error", s.countCallInternalError)
 	return m
+}
+
+func (s *Server) htmlList(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+
+	if r.Method != "GET" {
+		s.countCallBadRequest.Add(path, 1)
+		http.Error(w, "invalid method", http.StatusBadRequest)
+		return
+	}
+
+	caller, err := s.getIdentity(r)
+	if err != nil {
+		s.countCallInternalError.Add(path, 1)
+		http.Error(w, "unable to identify caller", http.StatusInternalServerError)
+		return
+	}
+
+	infos, err := s.db.List(caller)
+	if errors.Is(err, db.ErrAccessDenied) {
+		s.countCallForbidden.Add(path, 1)
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	} else if err != nil {
+		s.countCallInternalError.Add(path, 1)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	if err := s.tmpl.ExecuteTemplate(w, "index.html", infos); err != nil {
+		s.countCallInternalError.Add(path, 1)
+		log.Print(err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {

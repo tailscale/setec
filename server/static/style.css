@@ -1,0 +1,37 @@
+:root {
+  --text-body: #000;
+  --text-light: #666;
+  --bg-body: #fff;
+  --bg-error: #fcc;
+  --cell-border: #444;
+  --bg-colname: #cce;
+  --btn-focus: #cce;
+  --body-font: -apple-system, system-ui, Helvetica, Arial, sans-serif;
+}
+
+body {
+  font-family: var(--body-font);
+  margin: 2rem 7%;
+  padding: 0;
+  font-size: 18px;
+  background: var(--bg-body);
+  color: var(--text-body);
+  min-height: 100vh;
+}
+
+h1 { font-size: 150%; }
+
+table  {
+  border: 1px dotted var(--cell-border);
+  min-width: 20%;
+}
+td, th {
+  border: 1px solid var(--cell-border);
+  min-width: fit-content(10%);
+  font-size: 80%;
+  padding: 0.1rem 0.5rem;
+}
+th {
+  padding: 0.5rem;
+  background: var(--bg-colname);
+}
