@@ -1,8 +1,8 @@
 // Copyright (c) Tailscale Inc & AUTHORS
 // SPDX-License-Identifier: BSD-3-Clause
 
-// setec is a simple secret management server that vends secrets over
-// Tailscale.
+// Program setec is a secret management server that vends secrets over
+// Tailscale, and a client tool to communicate with that server.
 package main
 
 import (
@@ -16,12 +16,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 
-	"github.com/peterbourgon/ff/v3/ffcli"
+	"github.com/creachadair/command"
+	"github.com/creachadair/flax"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/server"
@@ -35,99 +38,87 @@ import (
 )
 
 func main() {
-	serverCmd := &ffcli.Command{
-		Name:       "server",
-		ShortUsage: "setec server [flags]",
-		ShortHelp:  "run the setec server",
-		FlagSet: func() *flag.FlagSet {
-			fs := flag.NewFlagSet("server", flag.ExitOnError)
-			fs.StringVar(&serverArgs.StateDir, "state-dir", "", "setec state dir")
-			fs.StringVar(&serverArgs.Hostname, "hostname", "", "Tailscale hostname to use")
-			fs.StringVar(&serverArgs.KMSKeyName, "kms-key-name", "", "name of KMS key to use for database encryption")
-			fs.BoolVar(&serverArgs.Dev, "dev", false, "dev mode")
-			return fs
-		}(),
-		Exec: runServer,
-	}
-	listCmd := &ffcli.Command{
-		Name:       "list",
-		ShortUsage: "setec list [flags] <server>",
-		ShortHelp:  "list secrets",
-		Exec:       runList,
-	}
-	infoCmd := &ffcli.Command{
-		Name:       "info",
-		ShortUsage: "setec info [flags] <server> <secret-name>",
-		ShortHelp:  "get secret info",
-		Exec:       runInfo,
-	}
-	getCmd := &ffcli.Command{
-		Name:       "get",
-		ShortUsage: "setec get [flags] <server> <secret-name>",
-		ShortHelp:  "get a secret",
-		FlagSet: func() *flag.FlagSet {
-			fs := flag.NewFlagSet("get", flag.ExitOnError)
-			fs.BoolVar(&getArgs.IfChanged, "if-changed", false, "get active version if changed from --version")
-			fs.Uint64Var(&getArgs.Version, "version", 0, "secret version to retrieve (default: the active version)")
-			return fs
-		}(),
-		Exec: runGet,
-	}
-	putCmd := &ffcli.Command{
-		Name:       "put",
-		ShortUsage: "setec put [flags] <server> <secret-name>",
-		ShortHelp:  "put a secret",
-		FlagSet: func() *flag.FlagSet {
-			fs := flag.NewFlagSet("put", flag.ExitOnError)
-			fs.StringVar(&putArgs.File, "from-file", "", "read secret value from file instead of prompting interactively")
-			return fs
-		}(),
-		Exec: runPut,
-	}
-	setActiveCmd := &ffcli.Command{
-		Name:       "activate",
-		ShortUsage: "setec activate [flags] <server> <secret-name> <secret-version>",
-		ShortHelp:  "activate a secret version",
-		Exec:       runSetActive,
-	}
+	root := &command.C{
+		Name:  filepath.Base(os.Args[0]),
+		Usage: "server [options]\ncommand [flags] ...\nhelp [command]",
+		Help: `A server and command-line tool for the setec API.
 
-	root := &ffcli.Command{
-		Name:       "setec",
-		ShortUsage: "setec <subcmd>",
-		Subcommands: []*ffcli.Command{
-			serverCmd,
-			listCmd,
-			infoCmd,
-			getCmd,
-			putCmd,
-			setActiveCmd,
+The "server" subcommand starts a server for the setec API.
+The other subcommands call methods of a running setec server.`,
+
+		Commands: []*command.C{
+			{
+				Name: "server",
+				Help: `Run the setec server.
+
+Start the server over Tailscale with the specified --hostname and --state-dir.
+The first time you run the server, you must provide a TS_AUTHKEY to authorize
+the node on the tailnet.
+
+With the --dev flag, the server runs with a dummy KMS. This mode is intended
+for debugging and is NOT SAFE for production use.
+
+Otherwise you must provide a --kms-key-name to use to encrypt the database.`,
+
+				SetFlags: command.Flags(flax.MustBind, &serverArgs),
+				Run:      command.Adapt(runServer),
+			},
+			{
+				Name:  "list",
+				Usage: "<server>",
+				Help:  "List all secrets visible to the caller.",
+				Run:   command.Adapt(runList),
+			},
+			{
+				Name:  "info",
+				Usage: "<server> <secret-name>",
+				Help:  "Get metadata for the specified secret.",
+				Run:   command.Adapt(runInfo),
+			},
+			{
+				Name:  "get",
+				Usage: "<server> <secret-name>",
+				Help: `Get the active value of the specified secret.
+
+With --version, fetch the specified version instead of the active one.
+With --if-changed, return the active value only if it differs from --version.`,
+
+				SetFlags: command.Flags(flax.MustBind, &getArgs),
+				Run:      command.Adapt(runGet),
+			},
+			{
+				Name:  "put",
+				Usage: "<server> <secret-name>",
+				Help: `Put a new value for the specified secret.
+
+With --from-file, the new value is read from the specified file; otherwise
+the user is prompted for a new value and confirmation at the terminal.`,
+
+				SetFlags: func(_ *command.Env, fs *flag.FlagSet) { flax.MustBind(fs, &putArgs) },
+				Run:      command.Adapt(runPut),
+			},
+			{
+				Name:  "set-active",
+				Usage: "<server> <secret-name> <secret-version>",
+				Help:  "Set the active version of the specified secret.",
+				Run:   command.Adapt(runSetActive),
+			},
+			command.HelpCommand(nil),
 		},
-		Exec: func(context.Context, []string) error { return flag.ErrHelp },
 	}
-
-	if err := root.ParseAndRun(context.Background(), os.Args[1:]); errors.Is(err, flag.ErrHelp) {
-		// A command tried to run but instructed us to print
-		// help. Exit unsuccessfully to convey that the intended
-		// command didn't run. Note, this branch isn't taken when the
-		// user requests --help explicitly.
-		os.Exit(2)
-	} else if err != nil {
-		log.Fatal(err)
-	}
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	command.RunOrFail(root.NewEnv(nil).SetContext(ctx), os.Args[1:])
 }
 
 var serverArgs struct {
-	StateDir   string
-	Hostname   string
-	KMSKeyName string
-	Dev        bool
+	StateDir   string `flag:"state-dir,Server state directory"`
+	Hostname   string `flag:"hostname,Tailscale hostname to use"`
+	KMSKeyName string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
+	Dev        bool   `flag:"dev,Run in developer mode"`
 }
 
-func runServer(ctx context.Context, args []string) error {
-	if len(args) > 0 {
-		return flag.ErrHelp
-	}
-
+func runServer(env *command.Env) error {
 	var kek tink.AEAD
 	if serverArgs.Dev {
 		if serverArgs.StateDir == "" {
@@ -239,28 +230,12 @@ func runServer(ctx context.Context, args []string) error {
 	return nil
 }
 
-func clientFromArgs(args []string) (client *setec.Client, remainingArgs []string, err error) {
-	if len(args) < 1 {
-		return nil, nil, flag.ErrHelp
-	}
-	server := args[0]
-	// TODO(corp/13375): make a better UX here where single-label
-	// hostnames get expanded into a full HTTPS URL.
-	return &setec.Client{
-		Server: server,
-	}, args[1:], nil
-}
+func newClient(url string) *setec.Client { return &setec.Client{Server: url} }
 
-func runList(ctx context.Context, args []string) error {
-	c, args, err := clientFromArgs(args)
-	if err != nil {
-		return err
-	}
-	if len(args) > 0 {
-		return flag.ErrHelp
-	}
+func runList(env *command.Env, server string) error {
+	c := newClient(server)
 
-	secrets, err := c.List(ctx)
+	secrets, err := c.List(env.Context())
 	if err != nil {
 		return fmt.Errorf("failed to list secrets: %v", err)
 	}
@@ -277,17 +252,10 @@ func runList(ctx context.Context, args []string) error {
 	return tw.Flush()
 }
 
-func runInfo(ctx context.Context, args []string) error {
-	c, args, err := clientFromArgs(args)
-	if err != nil {
-		return err
-	}
-	if len(args) != 1 {
-		return flag.ErrHelp
-	}
+func runInfo(env *command.Env, server, name string) error {
+	c := newClient(server)
 
-	name := args[0]
-	info, err := c.Info(ctx, name)
+	info, err := c.Info(env.Context(), name)
 	if err != nil {
 		return fmt.Errorf("failed to get secret info: %v", err)
 	}
@@ -303,28 +271,21 @@ func runInfo(ctx context.Context, args []string) error {
 }
 
 var getArgs struct {
-	IfChanged bool
-	Version   uint64
+	IfChanged bool   `flag:"if-changed,Get active version if changed from --version"`
+	Version   uint64 `flag:"version,Secret version to retrieve (default: the active version)"`
 }
 
-func runGet(ctx context.Context, args []string) error {
-	c, args, err := clientFromArgs(args)
-	if err != nil {
-		return err
-	}
-	if len(args) != 1 {
-		return flag.ErrHelp
-	}
-
-	name := args[0]
+func runGet(env *command.Env, server, name string) error {
+	c := newClient(server)
 
 	var val *api.SecretValue
+	var err error
 	if getArgs.Version == 0 {
-		val, err = c.Get(ctx, name)
+		val, err = c.Get(env.Context(), name)
 	} else if getArgs.IfChanged {
-		val, err = c.GetIfChanged(ctx, name, api.SecretVersion(getArgs.Version))
+		val, err = c.GetIfChanged(env.Context(), name, api.SecretVersion(getArgs.Version))
 	} else {
-		val, err = c.GetVersion(ctx, name, api.SecretVersion(getArgs.Version))
+		val, err = c.GetVersion(env.Context(), name, api.SecretVersion(getArgs.Version))
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get secret: %v", err)
@@ -341,28 +302,22 @@ func runGet(ctx context.Context, args []string) error {
 }
 
 var putArgs struct {
-	File string
+	File string `flag:"from-file,Read secret value from this file instead of prompting"`
 }
 
-func runPut(ctx context.Context, args []string) error {
-	c, args, err := clientFromArgs(args)
-	if err != nil {
-		return err
-	}
-	if len(args) != 1 {
-		return flag.ErrHelp
-	}
-
-	name := args[0]
+func runPut(env *command.Env, server, name string) error {
+	c := newClient(server)
 
 	var value []byte
 	if putArgs.File != "" {
+		var err error
 		value, err = os.ReadFile(putArgs.File)
 		if err != nil {
 			return err
 		}
 		value = bytes.TrimSpace(value)
 	} else {
+		var err error
 		io.WriteString(os.Stdout, "Enter secret: ")
 		os.Stdout.Sync()
 		value, err = term.ReadPassword(int(os.Stdin.Fd()))
@@ -385,7 +340,7 @@ func runPut(ctx context.Context, args []string) error {
 		}
 	}
 
-	ver, err := c.Put(ctx, name, value)
+	ver, err := c.Put(env.Context(), name, value)
 	if err != nil {
 		return fmt.Errorf("failed to write secret: %w", err)
 	}
@@ -393,22 +348,15 @@ func runPut(ctx context.Context, args []string) error {
 	return nil
 }
 
-func runSetActive(ctx context.Context, args []string) error {
-	c, args, err := clientFromArgs(args)
-	if err != nil {
-		return err
-	}
-	if len(args) != 2 {
-		return flag.ErrHelp
-	}
+func runSetActive(env *command.Env, server, name, versionString string) error {
+	c := newClient(server)
 
-	name := args[0]
-	version, err := strconv.ParseUint(args[1], 10, 32)
+	version, err := strconv.ParseUint(versionString, 10, 32)
 	if err != nil {
 		return fmt.Errorf("invalid version %q: %w", version, err)
 	}
 
-	if err := c.SetActiveVersion(ctx, name, api.SecretVersion(version)); err != nil {
+	if err := c.SetActiveVersion(env.Context(), name, api.SecretVersion(version)); err != nil {
 		return fmt.Errorf("failed to set active version: %w", err)
 	}
 
