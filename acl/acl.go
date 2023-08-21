@@ -17,11 +17,11 @@ import (
 type Action string
 
 const (
-	ActionGet       = Action("get")
-	ActionInfo      = Action("info")
-	ActionPut       = Action("put")
-	ActionSetActive = Action("set-active")
-	ActionDelete    = Action("delete")
+	ActionGet      = Action("get")
+	ActionInfo     = Action("info")
+	ActionPut      = Action("put")
+	ActionActivate = Action("activate")
+	ActionDelete   = Action("delete")
 )
 
 // Secret is a secret name pattern that can optionally contain '*'

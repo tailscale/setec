@@ -230,13 +230,12 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 	}
 }
 
-// SetActiveVersion changes the active version of the secret called
-// name to version.
-func (db *DB) SetActiveVersion(caller Caller, name string, version api.SecretVersion) error {
+// Activate changes the active version of the secret called name to version.
+func (db *DB) Activate(caller Caller, name string, version api.SecretVersion) error {
 	if name == "" {
 		return errors.New("empty secret name")
 	}
-	if err := db.checkAndLog(caller, acl.ActionSetActive, name, version); err != nil {
+	if err := db.checkAndLog(caller, acl.ActionActivate, name, version); err != nil {
 		return err
 	}
 

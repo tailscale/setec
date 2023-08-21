@@ -134,10 +134,9 @@ func (c *Client) Put(ctx context.Context, name string, value []byte) (version ap
 	})
 }
 
-// SetActiveVersion changes the active version of the secret called
-// name to version.
-func (c *Client) SetActiveVersion(ctx context.Context, name string, version api.SecretVersion) error {
-	_, err := do[struct{}](ctx, c, "/api/set-active", api.SetActiveRequest{
+// Activate changes the active version of the secret called name to version.
+func (c *Client) Activate(ctx context.Context, name string, version api.SecretVersion) error {
+	_, err := do[struct{}](ctx, c, "/api/activate", api.ActivateRequest{
 		Name:    name,
 		Version: version,
 	})

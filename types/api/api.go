@@ -86,9 +86,8 @@ type PutRequest struct {
 	Value []byte
 }
 
-// SetActiveRequest is a request to change the active version of a
-// secret.
-type SetActiveRequest struct {
+// ActivateRequest is a request to change the active version of a secret.
+type ActivateRequest struct {
 	// Name is the name of the secret to update.
 	Name string
 	// Version is the version to make active.
