@@ -94,7 +94,7 @@ func New(cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/get", ret.get)
 	cfg.Mux.HandleFunc("/api/info", ret.info)
 	cfg.Mux.HandleFunc("/api/put", ret.put)
-	cfg.Mux.HandleFunc("/api/set-active", ret.setActive)
+	cfg.Mux.HandleFunc("/api/activate", ret.activate)
 	cfg.Mux.HandleFunc("/api/delete", ret.deleteSecret)
 	cfg.Mux.HandleFunc("/api/delete-version", ret.deleteVersion)
 
@@ -180,9 +180,9 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) setActive(w http.ResponseWriter, r *http.Request) {
-	serveJSON(s, w, r, func(req api.SetActiveRequest, id db.Caller) (struct{}, error) {
-		if err := s.db.SetActiveVersion(id, req.Name, req.Version); err != nil {
+func (s *Server) activate(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.ActivateRequest, id db.Caller) (struct{}, error) {
+		if err := s.db.Activate(id, req.Name, req.Version); err != nil {
 			return struct{}{}, err
 		}
 		return struct{}{}, nil

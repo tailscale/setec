@@ -120,7 +120,7 @@ func TestCachedStore(t *testing.T) {
 	d := setectest.NewDB(t, nil)
 	d.MustPut(d.Superuser, "alpha", "foobar")
 	v2 := d.MustPut(d.Superuser, "alpha", "bazquux")
-	d.MustSetActiveVersion(d.Superuser, "alpha", v2)
+	d.MustActivate(d.Superuser, "alpha", v2)
 
 	ts := setectest.NewServer(t, d, nil)
 	hs := httptest.NewServer(ts.Mux)
@@ -303,8 +303,8 @@ func TestWatcher(t *testing.T) {
 	}
 
 	// The secret gets updated...
-	if err := cli.SetActiveVersion(ctx, "green", v2); err != nil {
-		t.Fatalf("SetActiveVersion to %v: unexpected error: %v", v2, err)
+	if err := cli.Activate(ctx, "green", v2); err != nil {
+		t.Fatalf("Activate to %v: unexpected error: %v", v2, err)
 	}
 
 	// The next poll occurs...

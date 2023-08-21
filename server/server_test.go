@@ -41,7 +41,7 @@ func TestServerGetChanged(t *testing.T) {
 	}
 
 	// Now change the value on the server...
-	if err := cli.SetActiveVersion(ctx, "test", v2); err != nil {
+	if err := cli.Activate(ctx, "test", v2); err != nil {
 		t.Fatalf("SetActiveVersion %v: unexpected error: %v", v2, err)
 	}
 

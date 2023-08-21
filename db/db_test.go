@@ -91,7 +91,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	d.MustSetActiveVersion(id, "test", 2)
+	d.MustActivate(id, "test", 2)
 	checkList(d.Actual, []*api.SecretInfo{
 		{
 			Name:          "test",
@@ -148,7 +148,7 @@ func TestGet(t *testing.T) {
 			t.Fatalf("secret version %d is %q, want %q", v, sec.Value, want)
 		}
 
-		d.MustSetActiveVersion(id, "test", v)
+		d.MustActivate(id, "test", v)
 		sec = d.MustGet(id, "test")
 		if !bytes.Equal(sec.Value, want) {
 			t.Fatalf("active secret is %q, want %q", sec.Value, want)

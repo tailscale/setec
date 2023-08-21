@@ -98,10 +98,10 @@ the user is prompted for a new value and confirmation at the terminal.`,
 				Run:      command.Adapt(runPut),
 			},
 			{
-				Name:  "set-active",
+				Name:  "activate",
 				Usage: "<server> <secret-name> <secret-version>",
 				Help:  "Set the active version of the specified secret.",
-				Run:   command.Adapt(runSetActive),
+				Run:   command.Adapt(runActivate),
 			},
 			command.HelpCommand(nil),
 		},
@@ -348,7 +348,7 @@ func runPut(env *command.Env, server, name string) error {
 	return nil
 }
 
-func runSetActive(env *command.Env, server, name, versionString string) error {
+func runActivate(env *command.Env, server, name, versionString string) error {
 	c := newClient(server)
 
 	version, err := strconv.ParseUint(versionString, 10, 32)
@@ -356,7 +356,7 @@ func runSetActive(env *command.Env, server, name, versionString string) error {
 		return fmt.Errorf("invalid version %q: %w", version, err)
 	}
 
-	if err := c.SetActiveVersion(env.Context(), name, api.SecretVersion(version)); err != nil {
+	if err := c.Activate(env.Context(), name, api.SecretVersion(version)); err != nil {
 		return fmt.Errorf("failed to set active version: %w", err)
 	}
 

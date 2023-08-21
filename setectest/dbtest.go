@@ -30,7 +30,7 @@ func superuser() db.Caller {
 		Permissions: acl.Rules{
 			acl.Rule{
 				Action: []acl.Action{
-					acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionSetActive, acl.ActionDelete,
+					acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionActivate, acl.ActionDelete,
 				},
 				Secret: []acl.Secret{"*"},
 			},
@@ -118,11 +118,11 @@ func (db *DB) MustGetVersion(caller db.Caller, name string, version api.SecretVe
 	return v
 }
 
-// MustSetActiveVersion sets the active version of the named secret or fails.
-func (db *DB) MustSetActiveVersion(caller db.Caller, name string, version api.SecretVersion) {
+// MustActivate sets the active version of the named secret or fails.
+func (db *DB) MustActivate(caller db.Caller, name string, version api.SecretVersion) {
 	db.t.Helper()
 
-	if err := db.Actual.SetActiveVersion(caller, name, version); err != nil {
+	if err := db.Actual.Activate(caller, name, version); err != nil {
 		db.t.Fatalf("SetActiveVersion %v of %q failed: %v", version, name, err)
 	}
 }
