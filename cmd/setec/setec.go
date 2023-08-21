@@ -437,14 +437,14 @@ func runDeleteSecret(env *command.Env, server, name string, rest ...string) erro
 // The token is not a security feature, it is just a request digest with a
 // timestamp to reduce the chances of things getting deleted by accident.
 func newConfirmationToken(req string) string {
-	// Code format: <time-window>-<req-digest>
+	// Code format: <time-window>.<req-digest>
 	//
 	// Confirmation codes last about 1 minute after construction, as a cheap
 	// hedge against copy-pasta from old script output or command history.  The
 	// digest is just to tie the token to the specific request.
 	window := (int64(time.Now().Unix()) + 119) / 60 // round up
 	sum := sha256.Sum256([]byte(req))
-	return fmt.Sprintf("%x-%x", window, sum[:8])
+	return fmt.Sprintf("%x.%x", window, sum[:8])
 }
 
 func checkConfirmation(req, token string) error {
