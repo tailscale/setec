@@ -109,7 +109,7 @@ the user is prompted for a new value and confirmation at the terminal.`,
 				Usage: "<server> <secret-name> <secret-version> [<confirm-token>]",
 				Help: `Delete the specified non-active version of a secret.
 
-A onfirmation token is required to delete a secret value.  Run the command to
+A confirmation token is required to delete a secret value.  Run the command to
 generate the token, then re-run appending the provided value.`,
 
 				Run: command.Adapt(runDeleteVersion),
@@ -119,7 +119,7 @@ generate the token, then re-run appending the provided value.`,
 				Usage: "<server> <secret-name> [<confirm-token>]",
 				Help: `Delete all versions of a secret (including active).
 
-A onfirmation token is required to delete a secret.  Run the command to
+A confirmation token is required to delete a secret.  Run the command to
 generate the token, then re-run appending the provided value.`,
 
 				Run: command.Adapt(runDeleteSecret),
