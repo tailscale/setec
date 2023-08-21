@@ -8,9 +8,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"expvar"
-	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -22,6 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/creachadair/command"
 	"github.com/creachadair/flax"
@@ -94,7 +95,7 @@ With --if-changed, return the active value only if it differs from --version.`,
 With --from-file, the new value is read from the specified file; otherwise
 the user is prompted for a new value and confirmation at the terminal.`,
 
-				SetFlags: func(_ *command.Env, fs *flag.FlagSet) { flax.MustBind(fs, &putArgs) },
+				SetFlags: command.Flags(flax.MustBind, &putArgs),
 				Run:      command.Adapt(runPut),
 			},
 			{
@@ -103,7 +104,28 @@ the user is prompted for a new value and confirmation at the terminal.`,
 				Help:  "Set the active version of the specified secret.",
 				Run:   command.Adapt(runActivate),
 			},
+			{
+				Name:  "delete-version",
+				Usage: "<server> <secret-name> <secret-version> [<confirm-token>]",
+				Help: `Delete the specified non-active version of a secret.
+
+A onfirmation token is required to delete a secret value.  Run the command to
+generate the token, then re-run appending the provided value.`,
+
+				Run: command.Adapt(runDeleteVersion),
+			},
+			{
+				Name:  "delete",
+				Usage: "<server> <secret-name> [<confirm-token>]",
+				Help: `Delete all versions of a secret (including active).
+
+A onfirmation token is required to delete a secret.  Run the command to
+generate the token, then re-run appending the provided value.`,
+
+				Run: command.Adapt(runDeleteSecret),
+			},
 			command.HelpCommand(nil),
+			command.VersionCommand(),
 		},
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -223,7 +245,16 @@ func runServer(env *command.Env) error {
 	if err != nil {
 		return fmt.Errorf("creating TLS listener: %v", err)
 	}
-	if err := http.Serve(l, tsweb.BrowserHeaderHandler(mux)); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	hs := &http.Server{Handler: tsweb.BrowserHeaderHandler(mux)}
+	go func() {
+		<-env.Context().Done()
+		log.Print("Signal received, stopping...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		hs.Shutdown(ctx)
+	}()
+
+	if err := hs.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("serving HTTPS: %v", err)
 	}
 
@@ -353,13 +384,75 @@ func runActivate(env *command.Env, server, name, versionString string) error {
 
 	version, err := strconv.ParseUint(versionString, 10, 32)
 	if err != nil {
-		return fmt.Errorf("invalid version %q: %w", version, err)
+		return fmt.Errorf("invalid version %q: %w", versionString, err)
 	}
 
 	if err := c.Activate(env.Context(), name, api.SecretVersion(version)); err != nil {
 		return fmt.Errorf("failed to set active version: %w", err)
 	}
 
+	return nil
+}
+
+func runDeleteVersion(env *command.Env, server, name, versionString string, rest ...string) error {
+	c := newClient(server)
+	var token string
+	if len(rest) != 0 {
+		token = rest[0]
+	}
+
+	version, err := strconv.ParseUint(versionString, 10, 32)
+	if err != nil {
+		return fmt.Errorf("invalid version %q: %w", versionString, err)
+	}
+	req := fmt.Sprintf("delete-version:%s:%d", name, version)
+	if err := checkConfirmation(req, token); err != nil {
+		return err
+	}
+	if err := c.DeleteVersion(env.Context(), name, api.SecretVersion(version)); err != nil {
+		return fmt.Errorf("failed to delete secret %q version %d: %w", name, version, err)
+	}
+	return nil
+}
+
+func runDeleteSecret(env *command.Env, server, name string, rest ...string) error {
+	c := newClient(server)
+	var token string
+	if len(rest) != 0 {
+		token = rest[0]
+	}
+
+	req := fmt.Sprintf("delete-secret:%s", name)
+	if err := checkConfirmation(req, token); err != nil {
+		return err
+	}
+	if err := c.Delete(env.Context(), name); err != nil {
+		return fmt.Errorf("failed to delete secret %q: %w", name, err)
+	}
+	return nil
+}
+
+// newConfirmationToken returns a nonce "token" that must be supplied to
+// perform a dangerous operation like deleting a secret or secret value.
+// The token is not a security feature, it is just a request digest with a
+// timestamp to reduce the chances of things getting deleted by accident.
+func newConfirmationToken(req string) string {
+	// Code format: <time-window>-<req-digest>
+	//
+	// Confirmation codes last about 1 minute after construction, as a cheap
+	// hedge against copy-pasta from old script output or command history.  The
+	// digest is just to tie the token to the specific request.
+	window := (int64(time.Now().Unix()) + 119) / 60 // round up
+	sum := sha256.Sum256([]byte(req))
+	return fmt.Sprintf("%x-%x", window, sum[:8])
+}
+
+func checkConfirmation(req, token string) error {
+	if token == "" {
+		return fmt.Errorf("confirmation required for %q, use token %q", req, newConfirmationToken(req))
+	} else if want := newConfirmationToken(req); token != want {
+		return fmt.Errorf("incorrect confirmation for %q, use token %q", req, want)
+	}
 	return nil
 }
 
