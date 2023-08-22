@@ -68,7 +68,7 @@ func TestServerStatus(t *testing.T) {
 	// Synthesize a selective access capability that permits read of secrets
 	// beginning with "ok/".
 	rule, err := json.Marshal(acl.Rule{
-		Action: []acl.Action{acl.ActionGet, acl.ActionInfo},
+		Action: []acl.Action{acl.ActionGet, acl.ActionInfo, acl.ActionDelete},
 		Secret: []acl.Secret{"ok/*"},
 	})
 	if err != nil {
@@ -110,17 +110,15 @@ func TestServerStatus(t *testing.T) {
 		t.Errorf("Put ok/test: got (%v, %v), want error %v", sv, err, api.ErrAccessDenied)
 	}
 
-	_ = ov1
-	/*
-		// Case 4: Access denied for delete of ok/test active version.
-		if err := cli.DeleteVersion(ctx, "ok/test", ov1); !errors.Is(err, api.ErrAccessDenied) {
-			t.Errorf("DeleteVersion %v: got error %v, want %v", ov1, err, api.ErrAccessDenied)
-		}
+	// Case 4: Internal error for delete of ok/test active version.
+	if err := cli.DeleteVersion(ctx, "ok/test", ov1); err == nil {
+		t.Errorf("DeleteVersion %v: unexpected success", ov1)
+	} else {
+		t.Logf("DeleteVersoin %v: got expected error: %v", ov1, err)
+	}
 
-		// Case 5: Success for delete of ok/test inactive version.
-		if err := cli.DeleteVersion(ctx, "ok/test", ov2); err != nil {
-			t.Errorf("DeleteVersion %v: unexpected error %v", ov2, err)
-		}
-	*/
-
+	// Case 5: Success for delete of ok/test inactive version.
+	if err := cli.DeleteVersion(ctx, "ok/test", ov2); err != nil {
+		t.Errorf("DeleteVersion %v: unexpected error %v", ov2, err)
+	}
 }
