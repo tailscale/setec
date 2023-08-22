@@ -142,3 +142,20 @@ func (c *Client) Activate(ctx context.Context, name string, version api.SecretVe
 	})
 	return err
 }
+
+// DeleteVersion deletes the specified version of the named secret.
+func (c *Client) DeleteVersion(ctx context.Context, name string, version api.SecretVersion) error {
+	_, err := do[struct{}](ctx, c, "/api/delete-version", api.DeleteVersionRequest{
+		Name:    name,
+		Version: version,
+	})
+	return err
+}
+
+// Delete deletes all versions of the named secret.
+func (c *Client) Delete(ctx context.Context, name string) error {
+	_, err := do[struct{}](ctx, c, "/api/delete", api.DeleteRequest{
+		Name: name,
+	})
+	return err
+}
