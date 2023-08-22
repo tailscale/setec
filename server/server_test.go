@@ -114,7 +114,7 @@ func TestServerStatus(t *testing.T) {
 	if err := cli.DeleteVersion(ctx, "ok/test", ov1); err == nil {
 		t.Errorf("DeleteVersion %v: unexpected success", ov1)
 	} else {
-		t.Logf("DeleteVersoin %v: got expected error: %v", ov1, err)
+		t.Logf("DeleteVersion %v: got expected error: %v", ov1, err)
 	}
 
 	// Case 5: Success for delete of ok/test inactive version.
