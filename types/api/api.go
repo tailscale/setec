@@ -10,9 +10,19 @@ import (
 	"strconv"
 )
 
-// ErrValueNotChanged is a sentinel error reported by Get requests when the
-// secret value has not changed from the specified value.
-var ErrValueNotChanged = errors.New("value not changed")
+var (
+	// ErrValueNotChanged is a sentinel error reported by Get requests when the
+	// secret value has not changed from the specified value.
+	ErrValueNotChanged = errors.New("value not changed")
+
+	// ErrNotFound is a sentinel error reported by requests when the specified
+	// secret version is not found.
+	ErrNotFound = errors.New("not found")
+
+	// ErrAccessDenied is a sentinel error reported by requests when access to
+	// perform the requested operation is denied.
+	ErrAccessDenied = errors.New("access denied")
+)
 
 // SecretVersion is the version of a secret.
 //

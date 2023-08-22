@@ -56,19 +56,20 @@ func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RE
 	}
 	defer httpResp.Body.Close()
 
-	switch httpResp.StatusCode {
-	case http.StatusNotModified:
-		// success: the server reports the value has not changed
-		var zero RESP
-		return zero, api.ErrValueNotChanged
-	case http.StatusOK:
-		// success: fall through to decode the desired response
-	default:
+	if code := httpResp.StatusCode; code != http.StatusOK {
 		errBs, err := io.ReadAll(httpResp.Body)
 		if err != nil {
-			return resp, fmt.Errorf("reading error response body (HTTP status %d): %w", httpResp.StatusCode, err)
+			return resp, fmt.Errorf("reading error response body (HTTP status %d): %w", code, err)
 		}
-		return resp, fmt.Errorf("request returned status %d: %q", httpResp.StatusCode, string(bytes.TrimSpace(errBs)))
+		switch code {
+		case http.StatusNotFound:
+			return resp, api.ErrNotFound
+		case http.StatusForbidden:
+			return resp, api.ErrAccessDenied
+		case http.StatusNotModified:
+			return resp, api.ErrValueNotChanged
+		}
+		return resp, fmt.Errorf("request returned status %d: %q", code, string(bytes.TrimSpace(errBs)))
 	}
 
 	bs, err = io.ReadAll(httpResp.Body)
