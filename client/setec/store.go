@@ -231,19 +231,19 @@ func (s *Store) secretLocked(name string) Secret {
 // the collection or reports an error.  LookupSecret does not automatically
 // retry in case of errors.
 func (s *Store) LookupSecret(name string) (Secret, error) {
+	if f := s.Secret(name); f != nil {
+		return f, nil
+	} else if !s.allowLookup {
+		return nil, errors.New("lookup is not enabled")
+	}
+
+	// Lock exclusive, as we need to modify the map with results.
 	s.active.Lock()
 	defer s.active.Unlock()
 	return s.lookupSecretLocked(name)
 }
 
 func (s *Store) lookupSecretLocked(name string) (Secret, error) {
-	if f := s.secretLocked(name); f != nil {
-		return f, nil
-	}
-	if !s.allowLookup {
-		return nil, errors.New("lookup is not enabled")
-	}
-
 	sv, err := s.client.Get(s.ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("lookup %q: %w", name, err)
@@ -278,11 +278,16 @@ func (s *Store) Watcher(name string) Watcher {
 func (s *Store) LookupWatcher(name string) (Watcher, error) {
 	s.active.Lock()
 	defer s.active.Unlock()
-	secret, err := s.lookupSecretLocked(name)
-	if err != nil {
+	var secret Secret
+	if _, ok := s.active.m[name]; ok {
+		secret = s.secretLocked(name) // OK, we already have it
+	} else if !s.allowLookup {
+		return Watcher{}, errors.New("lookup is not enabled")
+	} else if got, err := s.lookupSecretLocked(name); err != nil {
 		return Watcher{}, err
+	} else {
+		secret = got
 	}
-
 	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
 	s.active.w[name] = append(s.active.w[name], w)
 	return w, nil
