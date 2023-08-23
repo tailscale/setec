@@ -53,6 +53,7 @@ type Server struct {
 	countCalls             *metrics.LabelMap // :: method name → count
 	countCallBadRequest    *metrics.LabelMap // :: method name → count
 	countCallForbidden     *metrics.LabelMap // :: method name → count
+	countCallNotFound      *metrics.LabelMap // :: method name → count
 	countCallInternalError *metrics.LabelMap // :: method name → count
 }
 
@@ -86,6 +87,7 @@ func New(cfg Config) (*Server, error) {
 		countCalls:             &metrics.LabelMap{Label: "method"},
 		countCallBadRequest:    &metrics.LabelMap{Label: "method"},
 		countCallForbidden:     &metrics.LabelMap{Label: "method"},
+		countCallNotFound:      &metrics.LabelMap{Label: "method"},
 		countCallInternalError: &metrics.LabelMap{Label: "method"},
 	}
 	cfg.Mux.HandleFunc("/", ret.htmlList)
@@ -286,6 +288,10 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	if errors.Is(err, db.ErrAccessDenied) {
 		s.countCallForbidden.Add(apiMethod, 1)
 		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	} else if errors.Is(err, db.ErrNotFound) {
+		s.countCallNotFound.Add(apiMethod, 1)
+		http.Error(w, "not found", http.StatusNotFound)
 		return
 	} else if errors.Is(err, api.ErrValueNotChanged) {
 		w.Header().Set("Content-Type", "application/json")
