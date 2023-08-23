@@ -236,18 +236,25 @@ func (s *Store) LookupSecret(name string) (Secret, error) {
 	} else if !s.allowLookup {
 		return nil, errors.New("lookup is not enabled")
 	}
-
-	// Lock exclusive, as we need to modify the map with results.
-	s.active.Lock()
-	defer s.active.Unlock()
-	return s.lookupSecretLocked(name)
+	return s.lookupSecretInternal(name)
 }
 
-func (s *Store) lookupSecretLocked(name string) (Secret, error) {
-	sv, err := s.client.Get(s.ctx, name)
+// lookupSecretInternal fetches the specified secret from the service and,
+// if successful, installs it into the active set.
+// The caller must not hold the s.active lock; the call to the service is
+// performed outside the lock to avoid stalling other readers.
+func (s *Store) lookupSecretInternal(name string) (Secret, error) {
+	// Impose a loose deadline so requests do not stall forever if the
+	// infrastructure is farkakte.
+	getCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
+	defer cancel()
+	sv, err := s.client.Get(getCtx, name)
 	if err != nil {
 		return nil, fmt.Errorf("lookup %q: %w", name, err)
 	}
+
+	s.active.Lock()
+	defer s.active.Unlock()
 	s.active.m[name] = sv
 	if err := s.flushCacheLocked(); err != nil {
 		s.logf("WARNING: error flushing cache: %v", err)
@@ -283,11 +290,20 @@ func (s *Store) LookupWatcher(name string) (Watcher, error) {
 		secret = s.secretLocked(name) // OK, we already have it
 	} else if !s.allowLookup {
 		return Watcher{}, errors.New("lookup is not enabled")
-	} else if got, err := s.lookupSecretLocked(name); err != nil {
-		return Watcher{}, err
 	} else {
+		// We must release the lock to fetch from the server; do this in a
+		// closure to ensure lock discipline is restored in case of a panic.
+		got, err := func() (Secret, error) {
+			s.active.Unlock() // NOTE: This order is intended.
+			defer s.active.Lock()
+			return s.lookupSecretInternal(name)
+		}()
+		if err != nil {
+			return Watcher{}, err
+		}
 		secret = got
 	}
+
 	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
 	s.active.w[name] = append(s.active.w[name], w)
 	return w, nil
