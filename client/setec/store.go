@@ -20,10 +20,11 @@ import (
 
 // Store is a store that provides named secrets.
 type Store struct {
-	client    Client // API client
-	logf      logger.Logf
-	cache     Cache
-	newTicker func(time.Duration) Ticker
+	client      Client // API client
+	logf        logger.Logf
+	cache       Cache
+	allowLookup bool
+	newTicker   func(time.Duration) Ticker
 
 	active struct {
 		// Lock exclusive to modify the contents of the maps.
@@ -36,6 +37,7 @@ type Store struct {
 		w map[string][]Watcher        // :: secret name → watchers
 	}
 
+	ctx    context.Context    // governs the polling task and lookups
 	cancel context.CancelFunc // stops the polling task
 	done   <-chan struct{}    // closed when the poller is finished
 
@@ -63,10 +65,16 @@ type StoreConfig struct {
 	// The service URL must be non-empty.
 	Client Client
 
-	// Secrets are the names of the secrets this Store should retrieve. Only
-	// secrets named here can be read out of the store. An error is reported if
-	// no secrets are listed.
+	// Secrets are the names of the secrets this Store should retrieve. Unless
+	// AllowLookup is true, only secrets named here can be read out of the store
+	// and an error is reported if no secrets are listed here.
 	Secrets []string
+
+	// AllowLookup instructs the store to allow the caller to look up secrets
+	// not known to the store at the time of construction. If false, only
+	// secrets pre-declared in the Secrets slice can be fetched, and the Lookup
+	// and LookupWatcher methods will report an error for all un-listed secrets.
+	AllowLookup bool
 
 	// Cache, if non-nil, is a cache that persists secrets locally.
 	//
@@ -129,15 +137,16 @@ func (c StoreConfig) newTicker() func(time.Duration) Ticker {
 func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	if cfg.Client.Server == "" {
 		return nil, errors.New("no service URL is set")
-	} else if len(cfg.Secrets) == 0 {
+	} else if len(cfg.Secrets) == 0 && !cfg.AllowLookup {
 		return nil, errors.New("no secrets are listed")
 	}
 
 	s := &Store{
-		client:    cfg.Client,
-		logf:      cfg.logger(),
-		cache:     cfg.cache(),
-		newTicker: cfg.newTicker(),
+		client:      cfg.Client,
+		logf:        cfg.logger(),
+		cache:       cfg.cache(),
+		allowLookup: cfg.AllowLookup,
+		newTicker:   cfg.newTicker(),
 	}
 
 	// Initialize the active versions maps.
@@ -172,6 +181,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 
 	// Start a background task to refresh secrets.
 	pctx, cancel := context.WithCancel(context.Background())
+	s.ctx = pctx
 	s.cancel = cancel
 
 	done := make(chan struct{})
@@ -215,6 +225,37 @@ func (s *Store) secretLocked(name string) Secret {
 	return f
 }
 
+// LookupSecret returns a fetcher for the named secret. If name is already
+// known by s, this is equivalent to Secret; otherwise, s attempts to fetch the
+// latest active version of the secret from the service and either adds it to
+// the collection or reports an error.  LookupSecret does not automatically
+// retry in case of errors.
+func (s *Store) LookupSecret(name string) (Secret, error) {
+	s.active.Lock()
+	defer s.active.Unlock()
+	return s.lookupSecretLocked(name)
+}
+
+func (s *Store) lookupSecretLocked(name string) (Secret, error) {
+	if f := s.secretLocked(name); f != nil {
+		return f, nil
+	}
+	if !s.allowLookup {
+		return nil, errors.New("lookup is not enabled")
+	}
+
+	sv, err := s.client.Get(s.ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("lookup %q: %w", name, err)
+	}
+	s.active.m[name] = sv
+	if err := s.flushCacheLocked(); err != nil {
+		s.logf("WARNING: error flushing cache: %v", err)
+	}
+	s.logf("[store] added new secret %q", name)
+	return s.secretLocked(name), nil
+}
+
 // Watcher returns a watcher for the named secret. It returns a zero Watcher if
 // name does not correspond to one of the secrets known by s.
 func (s *Store) Watcher(name string) Watcher {
@@ -227,6 +268,24 @@ func (s *Store) Watcher(name string) Watcher {
 	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
 	s.active.w[name] = append(s.active.w[name], w)
 	return w
+}
+
+// LookupWatcher returns a watcher for the named secret. If name is already
+// known by s, this is equivalent to Watcher; otherwise s attempts to fetch the
+// latest active version of the secret from the service and either adds it to
+// the collection or reports an error.
+// LookupWatcher does not automatically retry in case of errors.
+func (s *Store) LookupWatcher(name string) (Watcher, error) {
+	s.active.Lock()
+	defer s.active.Unlock()
+	secret, err := s.lookupSecretLocked(name)
+	if err != nil {
+		return Watcher{}, err
+	}
+
+	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
+	s.active.w[name] = append(s.active.w[name], w)
+	return w, nil
 }
 
 // A Secret is a function that fetches the current active value of a secret.

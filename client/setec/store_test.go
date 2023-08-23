@@ -104,6 +104,23 @@ func TestStore(t *testing.T) {
 			t.Errorf("Lookup nonesuch: got %v, want nil", f)
 		}
 	})
+
+	t.Run("NewStore_noLookup", func(t *testing.T) {
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:  cli,
+			Secrets: []string{"alpha"},
+			Logf:    logger.Discard,
+		})
+		if err != nil {
+			t.Fatalf("Unexpected error: %v", err)
+		}
+		if s, err := st.LookupSecret("bravo"); err == nil {
+			t.Errorf("Lookup(bravo): got %q, want error", s.Get())
+		}
+		if w, err := st.LookupWatcher("bravo"); err == nil {
+			t.Errorf("Lookup(brav0: got %q, want error", w.Get())
+		}
+	})
 }
 
 func TestCachedStore(t *testing.T) {
@@ -328,6 +345,68 @@ func TestWatcher(t *testing.T) {
 		t.Error("Watcher is unexpectedly ready after no update")
 	case <-time.After(100 * time.Millisecond):
 		// OK
+	}
+}
+
+func TestLookup(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "red", "badge of courage") // active
+	d.MustPut(d.Superuser, "green", "eggs and ham")
+	d.MustPut(d.Superuser, "blue", "dolphins")
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	ctx := context.Background()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
+	// Case 1: We can create a store with no secrets if AllowLookup is true.
+	if _, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: true,
+	}); err != nil {
+		t.Errorf("NewStore with AllowLookup: unexpected error: %v", err)
+	}
+
+	// Set up a store that knows about "red", but not "green" or "blue" (yet)
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		Secrets:     []string{"red"},
+		AllowLookup: true,
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+
+	// Case 2: We can get a secret for "red" directly, but "green" is unknown.
+	if s := st.Secret("red"); s == nil {
+		t.Error("Secret(red): no value found")
+	}
+	if s := st.Secret("green"); s != nil {
+		t.Errorf("Secret(green): unexpected success %q", s.Get())
+	}
+
+	// Case 3: We can look up a secret for "green".
+	if s, err := st.LookupSecret("green"); err != nil {
+		t.Errorf("Lookup(green): unexepcted error: %v", err)
+	} else if got, want := string(s.Get()), "eggs and ham"; got != want {
+		t.Errorf("Lookup(green): got %q, want %q", got, want)
+	}
+
+	// Case 4: We can look up a watcher for "blue".
+	if w, err := st.LookupWatcher("blue"); err != nil {
+		t.Errorf("Lookup(blue): unexpected error: %v", err)
+	} else if got, want := string(w.Get()), "dolphins"; got != want {
+		t.Errorf("Lookup(blue): got %q, want %q", got, want)
+	}
+
+	// Case 5: We still can't lookup a non-existent secret.
+	if s, err := st.LookupSecret("orange"); err == nil {
+		t.Errorf("Lookup(orange): got %q, want error", s.Get())
+	} else {
+		t.Logf("Lookup(orange) correctly failed: %v", err)
 	}
 }
 
