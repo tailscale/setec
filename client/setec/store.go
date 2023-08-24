@@ -318,6 +318,13 @@ type Secret func() []byte
 // alias for calling the function.
 func (s Secret) Get() []byte { return s() }
 
+// StaticSecret returns a Secret that vends a static string value.
+// This is useful as a placeholder for development, migration, and testing.
+// The value reported by a static secret never changes.
+func StaticSecret(value string) Secret {
+	return func() []byte { return []byte(value) }
+}
+
 // poll polls the service for the active version of each secret in s.active.m.
 // It populates updates with any secret values that have changed.
 func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
