@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -323,6 +324,27 @@ func (s Secret) Get() []byte { return s() }
 // The value reported by a static secret never changes.
 func StaticSecret(value string) Secret {
 	return func() []byte { return []byte(value) }
+}
+
+// StaticFile returns a Secret that vends the contents of path.
+// This is useful as a placeholder for development, migration, and testing.
+// The value reported by this secret is the contents of path at the
+// time this function is called, and never changes.
+func StaticFile(path string) (Secret, error) {
+	bs, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading static secret: %w", err)
+	}
+	return func() []byte { return bs }, nil
+}
+
+// MustStaticFile is like StaticFile, but panics if the file cannot be read.
+func MustStaticFile(path string) Secret {
+	ret, err := StaticFile(path)
+	if err != nil {
+		panic(err)
+	}
+	return ret
 }
 
 // poll polls the service for the active version of each secret in s.active.m.
