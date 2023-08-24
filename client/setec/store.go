@@ -338,15 +338,6 @@ func StaticFile(path string) (Secret, error) {
 	return func() []byte { return bs }, nil
 }
 
-// MustStaticFile is like StaticFile, but panics if the file cannot be read.
-func MustStaticFile(path string) Secret {
-	ret, err := StaticFile(path)
-	if err != nil {
-		panic(err)
-	}
-	return ret
-}
-
 // poll polls the service for the active version of each secret in s.active.m.
 // It populates updates with any secret values that have changed.
 func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
