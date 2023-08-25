@@ -169,15 +169,26 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	}
 
 	// If there are any configured secrets that weren't cached, stub them in.
+	//
+	// If we find any missing secrets, we should also perform a cache flush
+	// after completing initialization, so that we will have a cache of the
+	// latest data in case we restart before the next poll.
+	var wantFlush bool
 	for _, name := range cfg.Secrets {
 		if _, ok := s.active.m[name]; !ok {
 			s.active.m[name] = nil
+			wantFlush = true
 		}
 	}
 
 	// Ensure we have values for all requested secrets.
 	if err := s.initializeActive(ctx); err != nil {
 		return nil, err
+	}
+	if wantFlush {
+		if err := s.flushCacheLocked(); err != nil {
+			s.logf("WARNING: error flushing cache: %v", err)
+		}
 	}
 
 	// Start a background task to refresh secrets.
