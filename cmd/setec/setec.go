@@ -45,7 +45,12 @@ func main() {
 		Help: `A server and command-line tool for the setec API.
 
 The "server" subcommand starts a server for the setec API.
-The other subcommands call methods of a running setec server.`,
+The other subcommands call methods of a running setec server.
+
+Client commands must provide a server URL with the -s flag, or via the
+SETEC_SERVER environment variable.`,
+
+		SetFlags: command.Flags(flax.MustBind, &clientArgs),
 
 		Commands: []*command.C{
 			{
@@ -65,20 +70,19 @@ Otherwise you must provide a --kms-key-name to use to encrypt the database.`,
 				Run:      command.Adapt(runServer),
 			},
 			{
-				Name:  "list",
-				Usage: "<server>",
-				Help:  "List all secrets visible to the caller.",
-				Run:   command.Adapt(runList),
+				Name: "list",
+				Help: "List all secrets visible to the caller.",
+				Run:  command.Adapt(runList),
 			},
 			{
 				Name:  "info",
-				Usage: "<server> <secret-name>",
+				Usage: "<secret-name>",
 				Help:  "Get metadata for the specified secret.",
 				Run:   command.Adapt(runInfo),
 			},
 			{
 				Name:  "get",
-				Usage: "<server> <secret-name>",
+				Usage: "<secret-name>",
 				Help: `Get the active value of the specified secret.
 
 With --version, fetch the specified version instead of the active one.
@@ -89,7 +93,7 @@ With --if-changed, return the active value only if it differs from --version.`,
 			},
 			{
 				Name:  "put",
-				Usage: "<server> <secret-name>",
+				Usage: "<secret-name>",
 				Help: `Put a new value for the specified secret.
 
 With --from-file, the new value is read from the specified file; otherwise
@@ -100,13 +104,13 @@ the user is prompted for a new value and confirmation at the terminal.`,
 			},
 			{
 				Name:  "activate",
-				Usage: "<server> <secret-name> <secret-version>",
+				Usage: "<secret-name> <secret-version>",
 				Help:  "Set the active version of the specified secret.",
 				Run:   command.Adapt(runActivate),
 			},
 			{
 				Name:  "delete-version",
-				Usage: "<server> <secret-name> <secret-version> [<confirm-token>]",
+				Usage: "<secret-name> <secret-version> [<confirm-token>]",
 				Help: `Delete the specified non-active version of a secret.
 
 A confirmation token is required to delete a secret value.  Run the command to
@@ -116,7 +120,7 @@ generate the token, then re-run appending the provided value.`,
 			},
 			{
 				Name:  "delete",
-				Usage: "<server> <secret-name> [<confirm-token>]",
+				Usage: "<secret-name> [<confirm-token>]",
 				Help: `Delete all versions of a secret (including active).
 
 A confirmation token is required to delete a secret.  Run the command to
@@ -130,7 +134,8 @@ generate the token, then re-run appending the provided value.`,
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	command.RunOrFail(root.NewEnv(nil).SetContext(ctx), os.Args[1:])
+	env := root.NewEnv(nil).SetContext(ctx).MergeFlags(true)
+	command.RunOrFail(env, os.Args[1:])
 }
 
 var serverArgs struct {
@@ -138,6 +143,10 @@ var serverArgs struct {
 	Hostname   string `flag:"hostname,Tailscale hostname to use"`
 	KMSKeyName string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
 	Dev        bool   `flag:"dev,Run in developer mode"`
+}
+
+var clientArgs struct {
+	Server string `flag:"s,default=$SETEC_SERVER,Server address"`
 }
 
 func runServer(env *command.Env) error {
@@ -261,10 +270,18 @@ func runServer(env *command.Env) error {
 	return nil
 }
 
-func newClient(url string) *setec.Client { return &setec.Client{Server: url} }
+func newClient() (*setec.Client, error) {
+	if clientArgs.Server == "" {
+		return nil, errors.New("no server address is set")
+	}
+	return &setec.Client{Server: clientArgs.Server}, nil
+}
 
-func runList(env *command.Env, server string) error {
-	c := newClient(server)
+func runList(env *command.Env) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 
 	secrets, err := c.List(env.Context())
 	if err != nil {
@@ -283,8 +300,11 @@ func runList(env *command.Env, server string) error {
 	return tw.Flush()
 }
 
-func runInfo(env *command.Env, server, name string) error {
-	c := newClient(server)
+func runInfo(env *command.Env, name string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 
 	info, err := c.Info(env.Context(), name)
 	if err != nil {
@@ -306,11 +326,13 @@ var getArgs struct {
 	Version   uint64 `flag:"version,Secret version to retrieve (default: the active version)"`
 }
 
-func runGet(env *command.Env, server, name string) error {
-	c := newClient(server)
+func runGet(env *command.Env, name string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 
 	var val *api.SecretValue
-	var err error
 	if getArgs.Version == 0 {
 		val, err = c.Get(env.Context(), name)
 	} else if getArgs.IfChanged {
@@ -336,8 +358,11 @@ var putArgs struct {
 	File string `flag:"from-file,Read secret value from this file instead of prompting"`
 }
 
-func runPut(env *command.Env, server, name string) error {
-	c := newClient(server)
+func runPut(env *command.Env, name string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 
 	var value []byte
 	if putArgs.File != "" {
@@ -379,8 +404,11 @@ func runPut(env *command.Env, server, name string) error {
 	return nil
 }
 
-func runActivate(env *command.Env, server, name, versionString string) error {
-	c := newClient(server)
+func runActivate(env *command.Env, name, versionString string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 
 	version, err := strconv.ParseUint(versionString, 10, 32)
 	if err != nil {
@@ -394,8 +422,11 @@ func runActivate(env *command.Env, server, name, versionString string) error {
 	return nil
 }
 
-func runDeleteVersion(env *command.Env, server, name, versionString string, rest ...string) error {
-	c := newClient(server)
+func runDeleteVersion(env *command.Env, name, versionString string, rest ...string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 	var token string
 	if len(rest) != 0 {
 		token = rest[0]
@@ -415,8 +446,11 @@ func runDeleteVersion(env *command.Env, server, name, versionString string, rest
 	return nil
 }
 
-func runDeleteSecret(env *command.Env, server, name string, rest ...string) error {
-	c := newClient(server)
+func runDeleteSecret(env *command.Env, name string, rest ...string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
 	var token string
 	if len(rest) != 0 {
 		token = rest[0]

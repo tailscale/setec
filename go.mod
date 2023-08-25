@@ -3,8 +3,8 @@ module github.com/tailscale/setec
 go 1.21
 
 require (
-	github.com/creachadair/command v0.0.6
-	github.com/creachadair/flax v0.0.0-20230819165835-943663c3a089
+	github.com/creachadair/command v0.1.0
+	github.com/creachadair/flax v0.0.0-20230825143830-824622abb99d
 	github.com/google/go-cmp v0.5.9
 	github.com/tink-crypto/tink-go-awskms v0.0.0-20230616072154-ba4f9f22c3e9
 	github.com/tink-crypto/tink-go/v2 v2.0.0
