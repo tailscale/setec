@@ -88,11 +88,11 @@ This prevents browser scripts from initiating calls to the service.
   4
   ```
 
-- `/api/set-active`: Set the active version of an existing secret.
+- `/api/activate`: Set the active version of an existing secret.
 
-  **Requires:** `set-active` permission for the specified name.
+  **Requires:** `activate` permission for the specified name.
 
-  **Request:** `api.SetActiveRequest`
+  **Request:** `api.ActivateRequest`
 
   **Example request:**
   ```json
