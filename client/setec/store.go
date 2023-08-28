@@ -396,15 +396,14 @@ func (s *Store) hasExpired(cs *cachedSecret) bool {
 // snapshotActive captures a point-in-time snapshot of the active names and
 // versions of all secrets known to the store. This permits an update poll to
 // do the time-consuming lookups outside the lock.
-func (s *Store) snapshotActive() map[string]api.SecretVersion {
+func (s *Store) snapshotActive() map[string]secretState {
 	s.active.Lock()
 	defer s.active.Unlock()
-	m := make(map[string]api.SecretVersion)
+	m := make(map[string]secretState)
 	for name, cs := range s.active.m {
-		if s.hasExpired(cs) {
-			m[name] = 0 // 0 means "expired"
-		} else {
-			m[name] = cs.Secret.Version
+		m[name] = secretState{
+			expired: s.hasExpired(cs),
+			version: cs.Secret.Version,
 		}
 	}
 	return m
@@ -418,19 +417,19 @@ func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) e
 	var errs []error
 	for name, sv := range s.snapshotActive() {
 		// If the secret has expired, mark it for deletion.
-		if sv == 0 {
+		if sv.expired {
 			updates[name] = nil // nil means "delete me"
 			continue
 		}
 
-		got, err := s.client.GetIfChanged(ctx, name, sv)
+		got, err := s.client.GetIfChanged(ctx, name, sv.version)
 		if errors.Is(err, api.ErrValueNotChanged) {
 			continue // all is well, but nothing to update
 		} else if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if got.Version != sv {
+		if got.Version != sv.version {
 			updates[name] = got
 		}
 	}
@@ -642,4 +641,12 @@ func (c *cachedSecret) lastAccessTime() time.Time {
 		return time.Time{}
 	}
 	return time.Unix(c.LastAccess, 0).UTC()
+}
+
+// secretState is the current state of a secret captured during a snapshot.
+// The version is the currently-cached version of the secret.
+// If expired == true, the secret has expired and should be removed.
+type secretState struct {
+	expired bool
+	version api.SecretVersion
 }
