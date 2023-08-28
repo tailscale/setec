@@ -26,7 +26,7 @@ type Store struct {
 	cache       Cache
 	allowLookup bool
 	newTicker   func(time.Duration) Ticker
-	timeNow     func() int64 // seconds since epoch UTC
+	timeNow     func() time.Time
 
 	// Undeclared secrets not accessed in at least this long are eligible to be
 	// purged from the cache. If zero, no expiry is performed.
@@ -141,11 +141,11 @@ func (c StoreConfig) newTicker() func(time.Duration) Ticker {
 	return func(time.Duration) Ticker { return c.PollTicker }
 }
 
-func (c StoreConfig) timeNow() func() int64 {
+func (c StoreConfig) timeNow() func() time.Time {
 	if c.TimeNow == nil {
-		return func() int64 { return time.Now().Unix() }
+		return time.Now
 	}
-	return func() int64 { return c.TimeNow().Unix() }
+	return c.TimeNow
 }
 
 // NewStore creates a secret store with the given configuration.  The service
@@ -255,9 +255,13 @@ func (s *Store) secretLocked(name string) Secret {
 		f = func() []byte {
 			s.active.Lock()
 			defer s.active.Unlock()
+
+			// Since the caller is actively requesting the value of the secret,
+			// update the last-accessed timestamp. This also applies to accesses
+			// via a Watcher, since the watchers wrap the underlying Secret.
 			s.countSecretFetch.Add(1)
 			cs := s.active.m[name]
-			cs.LastAccess = s.timeNow()
+			cs.LastAccess = s.timeNow().Unix()
 			return cs.Secret.Value
 		}
 		s.active.f[name] = f
@@ -295,7 +299,7 @@ func (s *Store) lookupSecretInternal(name string) (Secret, error) {
 
 	s.active.Lock()
 	defer s.active.Unlock()
-	s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow()}
+	s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
 	if err := s.flushCacheLocked(); err != nil {
 		s.logf("WARNING: error flushing cache: %v", err)
 	}
@@ -385,7 +389,7 @@ func (s *Store) hasExpired(cs *cachedSecret) bool {
 	} else if s.expiryAge <= 0 {
 		return false // no expiry age is defined
 	}
-	age := time.Unix(s.timeNow(), 0).UTC().Sub(cs.lastAccessTime())
+	age := s.timeNow().Sub(cs.lastAccessTime())
 	return age > s.expiryAge
 }
 
@@ -549,7 +553,7 @@ func (s *Store) initializeActive(ctx context.Context) error {
 			if err == nil {
 				s.active.m[name] = &cachedSecret{
 					Secret:     sv,
-					LastAccess: s.timeNow(),
+					LastAccess: s.timeNow().Unix(),
 					Declared:   true,
 
 					// The secret in s.active.m is only nil at initialization if
