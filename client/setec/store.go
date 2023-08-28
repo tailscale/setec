@@ -26,16 +26,21 @@ type Store struct {
 	cache       Cache
 	allowLookup bool
 	newTicker   func(time.Duration) Ticker
+	timeNow     func() time.Time
+
+	// Undeclared secrets not accessed in at least this long are eligible to be
+	// purged from the cache. If zero, no expiry is performed.
+	expiryAge time.Duration
 
 	active struct {
-		// Lock exclusive to modify the contents of the maps.
-		// Lock shared to read the keys and values.
-		// Values are not mutated once installed in the map.
-		sync.RWMutex
+		// Lock exclusive to read or modify the contents of the maps.
+		// Secret values are not mutated once installed in the map, so it is safe
+		// to continue to read them after releasing the lock.
+		sync.Mutex
 
-		m map[string]*api.SecretValue // :: secret name → active value
-		f map[string]Secret           // :: secret name → fetch function
-		w map[string][]Watcher        // :: secret name → watchers
+		m map[string]*cachedSecret // :: secret name → active value
+		f map[string]Secret        // :: secret name → fetch function
+		w map[string][]Watcher     // :: secret name → watchers
 	}
 
 	ctx    context.Context    // governs the polling task and lookups
@@ -93,6 +98,11 @@ type StoreConfig struct {
 	// This field is ignored if PollTicker is set.
 	PollInterval time.Duration
 
+	// ExpiryAge is a duration beyond which undeclared secrets that have not
+	// been accessed in that time are eligible for expiration from the cache.
+	// A zero value means secrets do not expire.
+	ExpiryAge time.Duration
+
 	// Logf is a logging function where text logs should be sent.  If nil, logs
 	// are written to the standard log package.
 	Logf logger.Logf
@@ -100,6 +110,10 @@ type StoreConfig struct {
 	// PollTicker, if set is a ticker that is used to control the scheduling of
 	// update polls. If nil, a time.Ticker is used based on the PollInterval.
 	PollTicker Ticker
+
+	// TimeNow, if set, is a function that reports a Time to be treated as the
+	// current wallclock time.  If nil, time.Now is used.
+	TimeNow func() time.Time
 }
 
 func (c StoreConfig) logger() logger.Logf {
@@ -127,6 +141,13 @@ func (c StoreConfig) newTicker() func(time.Duration) Ticker {
 	return func(time.Duration) Ticker { return c.PollTicker }
 }
 
+func (c StoreConfig) timeNow() func() time.Time {
+	if c.TimeNow == nil {
+		return time.Now
+	}
+	return c.TimeNow
+}
+
 // NewStore creates a secret store with the given configuration.  The service
 // URL of the client must be set.
 //
@@ -148,10 +169,12 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 		cache:       cfg.cache(),
 		allowLookup: cfg.AllowLookup,
 		newTicker:   cfg.newTicker(),
+		timeNow:     cfg.timeNow(),
+		expiryAge:   cfg.ExpiryAge,
 	}
 
 	// Initialize the active versions maps.
-	s.active.m = make(map[string]*api.SecretValue)
+	s.active.m = make(map[string]*cachedSecret)
 	s.active.f = make(map[string]Secret)
 	s.active.w = make(map[string][]Watcher)
 
@@ -164,18 +187,21 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 		// If we fail to decode the cache, treat it as empty.
 		if err := json.Unmarshal(data, &s.active.m); err != nil {
 			s.logf("WARNING: error decoding cache: %v (continuing)", err)
-			s.active.m = make(map[string]*api.SecretValue) // reset
+			clear(s.active.m) // reset
 		}
 	}
 
 	// If there are any configured secrets that weren't cached, stub them in.
+	// Any that we loaded from the cache, mark as declared.
 	//
 	// If we find any missing secrets, we should also perform a cache flush
 	// after completing initialization, so that we will have a cache of the
 	// latest data in case we restart before the next poll.
 	var wantFlush bool
 	for _, name := range cfg.Secrets {
-		if _, ok := s.active.m[name]; !ok {
+		if _, ok := s.active.m[name]; ok {
+			s.active.m[name].Declared = true
+		} else {
 			s.active.m[name] = nil
 			wantFlush = true
 		}
@@ -227,10 +253,16 @@ func (s *Store) secretLocked(name string) Secret {
 	f, ok := s.active.f[name]
 	if !ok {
 		f = func() []byte {
-			s.active.RLock()
-			defer s.active.RUnlock()
+			s.active.Lock()
+			defer s.active.Unlock()
+
+			// Since the caller is actively requesting the value of the secret,
+			// update the last-accessed timestamp. This also applies to accesses
+			// via a Watcher, since the watchers wrap the underlying Secret.
 			s.countSecretFetch.Add(1)
-			return s.active.m[name].Value
+			cs := s.active.m[name]
+			cs.LastAccess = s.timeNow().Unix()
+			return cs.Secret.Value
 		}
 		s.active.f[name] = f
 	}
@@ -267,11 +299,11 @@ func (s *Store) lookupSecretInternal(name string) (Secret, error) {
 
 	s.active.Lock()
 	defer s.active.Unlock()
-	s.active.m[name] = sv
+	s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
 	if err := s.flushCacheLocked(); err != nil {
 		s.logf("WARNING: error flushing cache: %v", err)
 	}
-	s.logf("[store] added new secret %q", name)
+	s.logf("[store] added new undeclared secret %q", name)
 	return s.secretLocked(name), nil
 }
 
@@ -349,22 +381,56 @@ func StaticFile(path string) (Secret, error) {
 	return func() []byte { return bs }, nil
 }
 
+// hasExpired reports whether cs is an undeclared secret whose last access time
+// was longer ago than the expiry window.
+func (s *Store) hasExpired(cs *cachedSecret) bool {
+	if cs.Declared {
+		return false // declared secrets do not expire
+	} else if s.expiryAge <= 0 {
+		return false // no expiry age is defined
+	}
+	age := s.timeNow().UTC().Sub(cs.lastAccessTime())
+	return age > s.expiryAge
+}
+
+// snapshotActive captures a point-in-time snapshot of the active names and
+// versions of all secrets known to the store. This permits an update poll to
+// do the time-consuming lookups outside the lock.
+func (s *Store) snapshotActive() map[string]secretState {
+	s.active.Lock()
+	defer s.active.Unlock()
+	m := make(map[string]secretState)
+	for name, cs := range s.active.m {
+		m[name] = secretState{
+			expired: s.hasExpired(cs),
+			version: cs.Secret.Version,
+		}
+	}
+	return m
+}
+
 // poll polls the service for the active version of each secret in s.active.m.
-// It populates updates with any secret values that have changed.
+// It adds an entry to updates for each name that needs to be updated:
+// If the named secret has expired, the value is nil.
+// Otherwise, the value is a new secret version for that secret.
 func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
-	s.active.RLock()
-	defer s.active.RUnlock()
 	var errs []error
-	for name, cv := range s.active.m {
-		sv, err := s.client.GetIfChanged(ctx, name, cv.Version)
+	for name, sv := range s.snapshotActive() {
+		// If the secret has expired, mark it for deletion.
+		if sv.expired {
+			updates[name] = nil // nil means "delete me"
+			continue
+		}
+
+		got, err := s.client.GetIfChanged(ctx, name, sv.version)
 		if errors.Is(err, api.ErrValueNotChanged) {
 			continue // all is well, but nothing to update
 		} else if err != nil {
 			errs = append(errs, err)
 			continue
 		}
-		if cv == nil || sv.Version != cv.Version {
-			updates[name] = sv
+		if got.Version != sv.version {
+			updates[name] = got
 		}
 	}
 	return errors.Join(errs...)
@@ -387,8 +453,8 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 		select {
 		case <-ctx.Done():
 			s.logf("[store] stopping update poller")
-			s.active.RLock()
-			defer s.active.RUnlock()
+			s.active.Lock()
+			defer s.active.Unlock()
 			if err := s.flushCacheLocked(); err != nil {
 				s.logf("WARNING: error flushing cache: %v", err)
 			}
@@ -418,7 +484,28 @@ func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
 	s.active.Lock()
 	defer s.active.Unlock()
 	for name, sv := range updates {
-		s.active.m[name] = sv
+		if sv == nil {
+			// This is an undeclared secret that has expired.
+			// If there are no handles referring to it, remove it.
+			if _, ok := s.active.f[name]; ok {
+				// This secret has an outstanding handle. Since watchers package
+				// secrets, this covers both.
+				//
+				// This should be a rare case. It could happen if the caller grabs an
+				// undeclared secret and then does not access it for a very long time,
+				// some weeks say, during which the program does not restart. At that
+				// point we may notice the secret has expired (because undeclared and
+				// not touched), but we don't want to break the handle.
+				continue
+			}
+			delete(s.active.m, name)
+			s.logf("[store] removing expired undeclared secret %q", name)
+			continue
+		}
+
+		// This is a new value for an unexpired secret.
+		// Note that new values do not update access times.
+		s.active.m[name].Secret = sv
 
 		// Wake up any watchers pending on new values for this secret.
 		for _, w := range s.active.w[name] {
@@ -465,13 +552,21 @@ func (s *Store) initializeActive(ctx context.Context) error {
 
 	for {
 		var missing int
-		for name, sv := range s.active.m {
-			if sv != nil {
+		for name, cs := range s.active.m {
+			if cs != nil {
 				continue
 			}
 			sv, err := s.client.Get(ctx, name)
 			if err == nil {
-				s.active.m[name] = sv
+				s.active.m[name] = &cachedSecret{
+					Secret:     sv,
+					LastAccess: s.timeNow().Unix(),
+					Declared:   true,
+
+					// The secret in s.active.m is only nil at initialization if
+					// name was declared in the StoreConfig and not found in the
+					// cache; hence this is a declared secret.
+				}
 				continue
 			} else if ctx.Err() != nil {
 				return err // context ended, give up
@@ -535,4 +630,29 @@ func (w Watcher) notify() {
 	case w.ready <- struct{}{}:
 	default:
 	}
+}
+
+type cachedSecret struct {
+	Secret     *api.SecretValue `json:"secret"`
+	LastAccess int64            `json:"lastAccess,string"`
+	Declared   bool             `json:"-"` // not persisted
+
+	// Access time is seconds since the Unix epoch in UTC.
+}
+
+// lastAccessTime reports the last accessed time of c as a time in UTC.
+// It returns the zero time if the last access is 0.
+func (c *cachedSecret) lastAccessTime() time.Time {
+	if c.LastAccess == 0 {
+		return time.Time{}
+	}
+	return time.Unix(c.LastAccess, 0).UTC()
+}
+
+// secretState is the current state of a secret captured during a snapshot.
+// The version is the currently-cached version of the secret.
+// If expired == true, the secret has expired and should be removed.
+type secretState struct {
+	expired bool
+	version api.SecretVersion
 }

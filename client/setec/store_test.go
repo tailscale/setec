@@ -124,7 +124,7 @@ func TestStore(t *testing.T) {
 }
 
 func TestCachedStore(t *testing.T) {
-	const cacheData = `{"alpha":{"Value":"Zm9vYmFy","Version":1}}`
+	const cacheData = `{"alpha":{"secret":{"Value":"Zm9vYmFy","Version":1},"lastAccess":"0"}}`
 
 	// Make a poll ticker so we can control the poll schedule.
 	pollTicker := newFakeTicker()
@@ -151,6 +151,8 @@ func TestCachedStore(t *testing.T) {
 		Secrets:    []string{"alpha"},
 		Cache:      mc,
 		PollTicker: pollTicker,
+		TimeNow:    func() time.Time { return time.Unix(1, 0) }, // fixed time
+		Logf:       logger.Discard,
 	})
 	if err != nil {
 		t.Fatalf("NewServer: unexpected error: %v", err)
@@ -168,7 +170,7 @@ func TestCachedStore(t *testing.T) {
 	}
 
 	// Check that the cache got updated with the new value.
-	const newCache = `{"alpha":{"Value":"YmF6cXV1eA==","Version":2}}`
+	const newCache = `{"alpha":{"secret":{"Value":"YmF6cXV1eA==","Version":2},"lastAccess":"1"}}`
 
 	if got := mc.String(); got != newCache {
 		t.Errorf("Cache value:\ngot  %#q\nwant %#q", got, newCache)
@@ -408,6 +410,101 @@ func TestLookup(t *testing.T) {
 	} else {
 		t.Logf("Lookup(orange) correctly failed: %v", err)
 	}
+}
+
+func TestCacheExpiry(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "apple", "malus pumila")
+	d.MustPut(d.Superuser, "pear", "pyrus communis")
+	d.MustPut(d.Superuser, "plum", "prunus americana")
+	d.MustPut(d.Superuser, "cherry", "prunus avium")
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	ctx := context.Background()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
+	mc := new(setec.MemCache)
+	apparentTime := time.Unix(1, 0)
+	advance := func(d time.Duration) {
+		apparentTime = apparentTime.Add(d)
+	}
+
+	// Start a store, access an undeclared secret, and cache.
+	t.Run("Setup", func(t *testing.T) {
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:      cli,
+			Cache:       mc,                        // currently empty
+			AllowLookup: true,                      // allow undeclared secrets
+			Secrets:     []string{"apple", "pear"}, // declared secrets
+			TimeNow:     func() time.Time { return apparentTime },
+		})
+		if err != nil {
+			t.Fatalf("NewStore: unexpected error: %v", err)
+		}
+		defer st.Close()
+
+		advance(25 * time.Second)
+		if _, err := st.LookupSecret("plum"); err != nil {
+			t.Fatalf("Lookup(plum): unexpected error: %v", err)
+		}
+		advance(25 * time.Second)
+		if _, err := st.LookupSecret("cherry"); err != nil {
+			t.Fatalf("Lookup(cherry): unexpected error: %v", err)
+		}
+	})
+
+	t.Run("Probe", func(t *testing.T) {
+		pt := newFakeTicker()
+
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:      cli,
+			Cache:       mc,                // holds the output from setup
+			AllowLookup: true,              // allow undeclared secrets
+			Secrets:     []string{"apple"}, // declared secrets
+			ExpiryAge:   30 * time.Second,  // expiry age
+			PollTicker:  pt,
+			TimeNow:     func() time.Time { return apparentTime },
+		})
+		if err != nil {
+			t.Fatalf("NewStore: unexpected error: %v", err)
+		}
+		defer st.Close()
+
+		// At this moment we have:
+		//
+		//    secret | decl | accessed
+		//    apple  | yes  | 1
+		//    pear   | no   | 1
+		//    plum   | no   | 26
+		//    cherry | no   | 51   << we are here
+		//
+		// We advance by 20 seconds to 71. Now, apple, pear, and plum are outside
+		// the expiry window, while cherry is not. We then perform a poll.
+		//
+		// Since apple is declared, it cannot expire. Pear and plum are
+		// undeclared and should be removed. Cherry is not yet old enough, so it
+		// should not be removed.
+		advance(20 * time.Second)
+		pt.Poll()
+
+		if st.Secret("apple") == nil {
+			t.Error("Secret(apple) is missing, should be here")
+		}
+		if f := st.Secret("pear"); f != nil {
+			t.Errorf("Secret(pear): got %q, want not found", f.Get())
+		}
+		if f := st.Secret("plum"); f != nil {
+			t.Errorf("Secret(plum): got %q, want not found", f.Get())
+		}
+		if st.Secret("cherry") == nil {
+			t.Errorf("Secret(cherry) is missing, should be here")
+		}
+	})
+
+	t.Logf("Final cache: %s", mc.String())
 }
 
 type badCache struct{}
