@@ -411,7 +411,9 @@ func (s *Store) snapshotActive() map[string]api.SecretVersion {
 }
 
 // poll polls the service for the active version of each secret in s.active.m.
-// It populates updates with any secret values that have changed.
+// It adds an entry to updates for each name that needs to be updated:
+// If the named secret has expired, the value is nil.
+// Otherwise, the value is a new secret version for that secret.
 func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
 	var errs []error
 	for name, sv := range s.snapshotActive() {
