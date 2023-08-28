@@ -33,10 +33,10 @@ type Store struct {
 	expiryAge time.Duration
 
 	active struct {
-		// Lock exclusive to modify the contents of the maps.
-		// Lock shared to read the keys and values.
-		// Secret values are not mutated once installed in the map.
-		sync.RWMutex
+		// Lock exclusive to read or modify the contents of the maps.
+		// Secret values are not mutated once installed in the map, so it is safe
+		// to continue to read them after releasing the lock.
+		sync.Mutex
 
 		m map[string]*cachedSecret // :: secret name → active value
 		f map[string]Secret        // :: secret name → fetch function
@@ -397,8 +397,8 @@ func (s *Store) hasExpired(cs *cachedSecret) bool {
 // versions of all secrets known to the store. This permits an update poll to
 // do the time-consuming lookups outside the lock.
 func (s *Store) snapshotActive() map[string]api.SecretVersion {
-	s.active.RLock()
-	defer s.active.RUnlock()
+	s.active.Lock()
+	defer s.active.Unlock()
 	m := make(map[string]api.SecretVersion)
 	for name, cs := range s.active.m {
 		if s.hasExpired(cs) {
@@ -452,8 +452,8 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 		select {
 		case <-ctx.Done():
 			s.logf("[store] stopping update poller")
-			s.active.RLock()
-			defer s.active.RUnlock()
+			s.active.Lock()
+			defer s.active.Unlock()
 			if err := s.flushCacheLocked(); err != nil {
 				s.logf("WARNING: error flushing cache: %v", err)
 			}
