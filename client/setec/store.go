@@ -111,8 +111,8 @@ type StoreConfig struct {
 	// update polls. If nil, a time.Ticker is used based on the PollInterval.
 	PollTicker Ticker
 
-	// TimeNow, if set, is a function that reports the current time in UTC.
-	// If nil, time.Now is used.
+	// TimeNow, if set, is a function that reports a Time to be treated as the
+	// current wallclock time.  If nil, time.Now is used.
 	TimeNow func() time.Time
 }
 
@@ -389,7 +389,7 @@ func (s *Store) hasExpired(cs *cachedSecret) bool {
 	} else if s.expiryAge <= 0 {
 		return false // no expiry age is defined
 	}
-	age := s.timeNow().Sub(cs.lastAccessTime())
+	age := s.timeNow().UTC().Sub(cs.lastAccessTime())
 	return age > s.expiryAge
 }
 
