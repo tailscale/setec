@@ -490,6 +490,12 @@ func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
 			if _, ok := s.active.f[name]; ok {
 				// This secret has an outstanding handle. Since watchers package
 				// secrets, this covers both.
+				//
+				// This should be a rare case. It could happen if the caller grabs an
+				// undeclared secret and then does not access it for a very long time,
+				// some weeks say, during which the program does not restart. At that
+				// point we may notice the secret has expired (because undeclared and
+				// not touched), but we don't want to break the handle.
 				continue
 			}
 			delete(s.active.m, name)
