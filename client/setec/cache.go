@@ -4,7 +4,10 @@
 package setec
 
 import (
+	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"tailscale.com/atomicfile"
 )
@@ -26,6 +29,9 @@ type Cache interface {
 // a MemCache never report an error.
 type MemCache struct{ data []byte }
 
+// NewMemCache constructs a new memory cache whose initial contents are s.
+func NewMemCache(s string) *MemCache { return &MemCache{data: []byte(s)} }
+
 func (m *MemCache) Write(data []byte) error { m.data = data; return nil }
 
 func (m *MemCache) Read() ([]byte, error) { return m.data, nil }
@@ -35,6 +41,18 @@ func (m *MemCache) String() string { return string(m.data) }
 // FileCache is an implementation of the Cache interface that stores a value in
 // a file at the specified path.
 type FileCache string
+
+// NewFileCache constructs a new file cache associated with the specified path.
+// The cache file is not created, but an error is reported if the enclosing
+// directory cannot be created, or if the path exists but is not a plain file.
+func NewFileCache(path string) (FileCache, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return "", fmt.Errorf("cache directory: %w", err)
+	} else if fi, err := os.Lstat(path); err == nil && !fi.Mode().IsRegular() {
+		return "", errors.New("cache path exists and is not a regular file")
+	}
+	return FileCache(path), nil
+}
 
 func (f FileCache) Write(data []byte) error {
 	return atomicfile.WriteFile(string(f), data, 0600)

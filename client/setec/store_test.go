@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,15 +27,6 @@ func checkSecretValue(t *testing.T, st *setec.Store, name, want string) setec.Se
 		t.Fatalf("Secret %q: got %q, want %q", name, got, want)
 	}
 	return f
-}
-
-func mustMemCache(t *testing.T, data string) *setec.MemCache {
-	t.Helper()
-	var mc setec.MemCache
-	if err := mc.Write([]byte(data)); err != nil {
-		t.Fatalf("Initialize MemCache: %v", err)
-	}
-	return &mc
 }
 
 func TestStore(t *testing.T) {
@@ -130,7 +123,7 @@ func TestCachedStore(t *testing.T) {
 	pollTicker := newFakeTicker()
 
 	// Populate a memory cache with an "old" value of a secret.
-	mc := mustMemCache(t, cacheData)
+	mc := setec.NewMemCache(cacheData)
 
 	// Connect to a service which has a newer value of the same secret, and
 	// verify that initially we see the cached value.
@@ -210,7 +203,7 @@ func TestBadCache(t *testing.T) {
 		cache setec.Cache
 	}{
 		{"ReadFailed", badCache{}},
-		{"DecodeFailed", mustMemCache(t, `{"bad":JSON*#$&(@`)},
+		{"DecodeFailed", setec.NewMemCache(`{"bad":JSON*#$&(@`)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -505,6 +498,58 @@ func TestCacheExpiry(t *testing.T) {
 	})
 
 	t.Logf("Final cache: %s", mc.String())
+}
+
+func TestFileCache(t *testing.T) {
+	t.Run("OK", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "sub/cache.file")
+		fc, err := setec.NewFileCache(path)
+		if err != nil {
+			t.Fatalf("NewFileCache: unexpected error: %v", err)
+		}
+		if err := fc.Write([]byte("xyzzy")); err != nil {
+			t.Fatalf("Write cache: unexpected error: %v", err)
+		}
+		got, err := fc.Read()
+		if err != nil {
+			t.Fatalf("Read cache: unexpected error: %v", err)
+		} else if string(got) != "xyzzy" {
+			t.Fatalf("Read cache: got %q, want xyzzy", got)
+		}
+	})
+
+	t.Run("Create", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "path/to/cache.file")
+		if _, err := setec.NewFileCache(path); err != nil {
+			t.Fatalf("NewFileCache: unexpected error: %v", err)
+		}
+	})
+
+	t.Run("FailMkdir", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "blocker"), []byte("ok"), 0600); err != nil {
+			t.Fatalf("Create blocking file: %v", err)
+		}
+
+		// The blocker file should prevent us creating the cache directory.
+		fc, err := setec.NewFileCache(filepath.Join(dir, "blocker/foo/cache.file"))
+		if err == nil {
+			t.Errorf("NewFileCache: got %v, wanted error", fc)
+		}
+	})
+
+	t.Run("FailType", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "cache.file")
+		if err := os.Symlink("whatever", path); err != nil {
+			t.Fatalf("Create blocking symlink: %v", err)
+		}
+
+		// The blocker prevents us from using the cache file.
+		fc, err := setec.NewFileCache(path)
+		if err == nil {
+			t.Errorf("NewFileCache: got %v, wanted error", fc)
+		}
+	})
 }
 
 type badCache struct{}
