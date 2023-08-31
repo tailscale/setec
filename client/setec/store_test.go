@@ -500,7 +500,7 @@ func TestCacheExpiry(t *testing.T) {
 	t.Logf("Final cache: %s", mc.String())
 }
 
-func TestFileCache(t *testing.T) {
+func TestNewFileCache(t *testing.T) {
 	t.Run("OK", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "sub/cache.file")
 		fc, err := setec.NewFileCache(path)
