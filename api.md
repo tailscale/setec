@@ -16,6 +16,7 @@ This prevents browser scripts from initiating calls to the service.
 
 - Invalid request parameters report 400 Invalid request.
 - Access permission errors report 403 Forbidden.
+- Requests for unknown values report 404 Not found.
 - All other errors report 500 Internal server error.
 
 ## Methods
