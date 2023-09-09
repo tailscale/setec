@@ -17,6 +17,22 @@ import (
 // previously written data).
 type Cache interface {
 	// Write persists the given bytes for future retrieval.
+	//
+	// The data written to a Cache by the Store are a JSON object having the
+	// following structure:
+	//
+	//   {
+	//      "secret-name": {
+	//         "secret": {"Value": <bytes>, "Version": <version>},
+	//         "lastAccess": <last-access-time>,
+	//      },
+	//      ...
+	//   }
+	//
+	// The "secret" field is an api.SecretValue for the latest known value
+	// obtained from the service.  The "lastAccess" field is a Unix epoch
+	// timestamp in seconds for the last time this secret name was requested
+	// from the store, used to expire stale undeclared secrets.
 	Write([]byte) error
 
 	// Read returns previously persisted bytes, if any are available.  If the
