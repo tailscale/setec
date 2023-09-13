@@ -72,7 +72,9 @@ func (o *ServerOptions) auditLog() *audit.Writer {
 func NewServer(t *testing.T, db *DB, opts *ServerOptions) *Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	s, err := server.New(server.Config{
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s, err := server.New(ctx, server.Config{
 		DBPath:   db.Path,
 		Key:      db.Key,
 		AuditLog: opts.auditLog(),

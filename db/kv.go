@@ -80,6 +80,8 @@ type kv struct {
 	dekRaw    []byte
 
 	kekCipher tink.AEAD
+
+	gen uint64
 }
 
 // secret is a named secret, which may have multiple versioned secret
@@ -180,6 +182,9 @@ func openOrCreateKV(path string, kek tink.AEAD) (*kv, error) {
 		dekCipher: dekCipher,
 		dekRaw:    wrapped.DEK,
 		kekCipher: kek,
+		// Initialize gen to 1, so that 0 can be used as a sentinel
+		// value by calling code.
+		gen: 1,
 	}
 	return ret, nil
 }
@@ -216,7 +221,13 @@ func newKV(path string, key tink.AEAD) (*kv, error) {
 
 // save encrypts and writes the kv to kv.path. If save return an
 // error, the file at kv.path is unchanged.
-func (kv *kv) save() error {
+func (kv *kv) save() (err error) {
+	defer func() {
+		if err == nil {
+			kv.gen++
+		}
+	}()
+
 	clearDB, err := json.Marshal(persist{
 		Secrets: kv.secrets,
 	})
@@ -239,6 +250,18 @@ func (kv *kv) save() error {
 		return fmt.Errorf("writing database to %q: %w", kv.path, err)
 	}
 	return nil
+}
+
+// filePath returns the path to the database file on disk.
+func (kv *kv) filePath() string {
+	return kv.path
+}
+
+// writeGen returns a process-local "write generation" for the kv
+// store. The write generation increments whenever a change is saved
+// to disk, and can be used as a coarse change detection mechanism.
+func (kv *kv) writeGen() uint64 {
+	return kv.gen
 }
 
 // list returns a list of all secret names in kv.

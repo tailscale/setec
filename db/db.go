@@ -106,6 +106,23 @@ func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secre
 	return multierr.New(errs...)
 }
 
+// Path returns the path to the database file on disk.
+func (db *DB) Path() string {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.kv.filePath()
+}
+
+// WriteGen returns a process-local "write generation" for the DB. The
+// write generation is a positive value that increments whenever a
+// change is saved to disk, and can be used as a coarse change
+// detection mechanism.
+func (db *DB) WriteGen() uint64 {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.kv.writeGen()
+}
+
 // List returns secret metadata for all secrets on which at least one
 // member of 'from' has acl.ActionInfo permissions.
 func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
