@@ -16,6 +16,11 @@ import (
 	"net/http"
 	"net/netip"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/db"
@@ -41,13 +46,25 @@ type Config struct {
 	// Mux is the http.ServeMux on which the server registers its HTTP
 	// handlers.
 	Mux *http.ServeMux
+	// BackupBucket is an AWS S3 bucket name to which database
+	// backups should be saved. If empty, the database is not backed
+	// up.
+	BackupBucket string
+	// BackupAssumeRole is an AWS IAM role to assume to access the
+	// backup bucket. The role assumption is requested using the
+	// process's ambient AWS permissions, as autoconfigured by the AWS
+	// SDK. If BackupAssumeRole is empty, backups are written without
+	// assuming a role.
+	BackupAssumeRole string
 }
 
 // Server is a secrets HTTP server.
 type Server struct {
-	db    *db.DB
-	whois func(context.Context, string) (*apitype.WhoIsResponse, error)
-	tmpl  *template.Template
+	db           *db.DB
+	whois        func(context.Context, string) (*apitype.WhoIsResponse, error)
+	tmpl         *template.Template
+	backupClient *s3.Client
+	backupBucket string
 
 	// Metrics
 	countCalls             *metrics.LabelMap // :: method name → count
@@ -64,7 +81,7 @@ var dashboardTemplates embed.FS
 var staticFiles embed.FS
 
 // New creates a secret server and makes it ready to serve.
-func New(cfg Config) (*Server, error) {
+func New(ctx context.Context, cfg Config) (*Server, error) {
 	db, err := db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
 	if err != nil {
 		return nil, fmt.Errorf("opening DB: %w", err)
@@ -90,6 +107,17 @@ func New(cfg Config) (*Server, error) {
 		countCallNotFound:      &metrics.LabelMap{Label: "method"},
 		countCallInternalError: &metrics.LabelMap{Label: "method"},
 	}
+
+	if cfg.BackupBucket != "" {
+		s3Client, err := makeS3Client(ctx, cfg.BackupAssumeRole)
+		if err != nil {
+			return nil, fmt.Errorf("creating backups S3 client: %w", err)
+		}
+		ret.backupClient = s3Client
+		ret.backupBucket = cfg.BackupBucket
+		go ret.periodicBackup(ctx)
+	}
+
 	cfg.Mux.HandleFunc("/", ret.htmlList)
 	cfg.Mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 	cfg.Mux.HandleFunc("/api/list", ret.list)
@@ -101,6 +129,21 @@ func New(cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/delete-version", ret.deleteVersion)
 
 	return ret, nil
+}
+
+func makeS3Client(ctx context.Context, assumeRole string) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("getting ambient AWS credentials: %w", err)
+	}
+
+	if assumeRole == "" {
+		return s3.NewFromConfig(cfg), nil
+	}
+
+	creds := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), assumeRole)
+	cfg.Credentials = aws.NewCredentialsCache(creds)
+	return s3.NewFromConfig(cfg), nil
 }
 
 // Metrics returns a collection of metrics for s. THe caller is responsible for
