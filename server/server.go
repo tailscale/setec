@@ -50,6 +50,15 @@ type Config struct {
 	// backups should be saved. If empty, the database is not backed
 	// up.
 	BackupBucket string
+	// BackupBucketRegion is the AWS region that the S3 bucket is in.
+	//
+	// You would think that one could derive this automatically given
+	// the bucket's unique global namespace. I genuinely could not
+	// find a way to get the AWS Go SDK to just figure this out
+	// correctly, after two days of trying. The AWS SDK is not
+	// designed for excellence, you are supposed to just give up and
+	// be mediocre.
+	BackupBucketRegion string
 	// BackupAssumeRole is an AWS IAM role to assume to access the
 	// backup bucket. The role assumption is requested using the
 	// process's ambient AWS permissions, as autoconfigured by the AWS
@@ -109,7 +118,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	if cfg.BackupBucket != "" {
-		s3Client, err := makeS3Client(ctx, cfg.BackupAssumeRole)
+		s3Client, err := makeS3Client(ctx, cfg.BackupBucketRegion, cfg.BackupBucket, cfg.BackupAssumeRole)
 		if err != nil {
 			return nil, fmt.Errorf("creating backups S3 client: %w", err)
 		}
@@ -131,18 +140,17 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return ret, nil
 }
 
-func makeS3Client(ctx context.Context, assumeRole string) (*s3.Client, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
+func makeS3Client(ctx context.Context, region, bucket, assumeRole string) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return nil, fmt.Errorf("getting ambient AWS credentials: %w", err)
 	}
 
-	if assumeRole == "" {
-		return s3.NewFromConfig(cfg), nil
+	if assumeRole != "" {
+		creds := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), assumeRole)
+		cfg.Credentials = aws.NewCredentialsCache(creds)
 	}
 
-	creds := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), assumeRole)
-	cfg.Credentials = aws.NewCredentialsCache(creds)
 	return s3.NewFromConfig(cfg), nil
 }
 

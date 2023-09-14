@@ -6,7 +6,6 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	"fmt"
 	"log"
 	"os"
@@ -47,11 +46,9 @@ func (s *Server) doBackup(ctx context.Context) error {
 		return err
 	}
 
-	expectSum := fmt.Sprintf("\"%x\"", md5.Sum(bs))
-
 	key := backupKey()
 
-	resp, err := s.backupClient.PutObject(ctx, &s3.PutObjectInput{
+	_, err = s.backupClient.PutObject(ctx, &s3.PutObjectInput{
 		Bucket: &s.backupBucket,
 		Key:    &key,
 		Body:   bytes.NewReader(bs),
@@ -59,12 +56,9 @@ func (s *Server) doBackup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if *resp.ETag != expectSum {
-		return fmt.Errorf("md5 mismatch: expected %s, got %s", expectSum, *resp.ETag)
-	}
 
 	name := filepath.Base(path)
-	log.Printf("Uploaded file %q to %s/%s with ETag: %v. Took %v", name, s.backupBucket, key, *resp.ETag, time.Since(start).Round(time.Millisecond))
+	log.Printf("Uploaded file %q to %s/%s. Took %v", name, s.backupBucket, key, time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
