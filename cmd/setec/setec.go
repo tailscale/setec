@@ -139,12 +139,13 @@ generate the token, then re-run appending the provided value.`,
 }
 
 var serverArgs struct {
-	StateDir     string `flag:"state-dir,Server state directory"`
-	Hostname     string `flag:"hostname,Tailscale hostname to use"`
-	KMSKeyName   string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
-	BackupBucket string `flag:"backup-bucket,Name of AWS S3 bucket to use for database backups"`
-	BackupRole   string `flag:"backup-role,Name of AWS IAM role to assume to write backups"`
-	Dev          bool   `flag:"dev,Run in developer mode"`
+	StateDir           string `flag:"state-dir,Server state directory"`
+	Hostname           string `flag:"hostname,Tailscale hostname to use"`
+	KMSKeyName         string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
+	BackupBucket       string `flag:"backup-bucket,Name of AWS S3 bucket to use for database backups"`
+	BackupBucketRegion string `flag:"backup-bucket-region,AWS region of the backup S3 bucket"`
+	BackupRole         string `flag:"backup-role,Name of AWS IAM role to assume to write backups"`
+	Dev                bool   `flag:"dev,Run in developer mode"`
 }
 
 var clientArgs struct {
@@ -227,13 +228,14 @@ func runServer(env *command.Env) error {
 	}
 
 	srv, err := server.New(env.Context(), server.Config{
-		DBPath:           filepath.Join(serverArgs.StateDir, "database"),
-		Key:              kek,
-		AuditLog:         audit,
-		WhoIs:            lc.WhoIs,
-		BackupBucket:     serverArgs.BackupBucket,
-		BackupAssumeRole: serverArgs.BackupRole,
-		Mux:              mux,
+		DBPath:             filepath.Join(serverArgs.StateDir, "database"),
+		Key:                kek,
+		AuditLog:           audit,
+		WhoIs:              lc.WhoIs,
+		BackupBucket:       serverArgs.BackupBucket,
+		BackupBucketRegion: serverArgs.BackupBucketRegion,
+		BackupAssumeRole:   serverArgs.BackupRole,
+		Mux:                mux,
 	})
 	if err != nil {
 		return fmt.Errorf("initializing setec server: %v", err)
