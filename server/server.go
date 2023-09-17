@@ -257,7 +257,9 @@ func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
 }
 
 // ACLCap is the capability name used for setec ACL permissions.
-const ACLCap tailcfg.PeerCapability = "https://tailscale.com/cap/secrets"
+const ACLCap tailcfg.PeerCapability = "tailscale.com/cap/secrets"
+
+const aclCapHTTP = "https://" + ACLCap
 
 // getIdentity extracts identity and permissions from an HTTP request.
 func (s *Server) getIdentity(r *http.Request) (id db.Caller, err error) {
@@ -283,6 +285,14 @@ func (s *Server) getIdentity(r *http.Request) (id db.Caller, err error) {
 	id.Principal.Hostname = who.Node.Name
 
 	id.Permissions, err = tailcfg.UnmarshalCapJSON[acl.Rule](who.CapMap, ACLCap)
+
+	// TODO(creachadair): As a temporary measure to allow us to migrate
+	// capability names away from the https:// prefix, if we don't get a result
+	// without the prefix, try again with it. Remove this once the policy has
+	// been updated on the server side.
+	if err == nil && len(id.Permissions) == 0 {
+		id.Permissions, err = tailcfg.UnmarshalCapJSON[acl.Rule](who.CapMap, aclCapHTTP)
+	}
 	if err != nil {
 		return db.Caller{}, fmt.Errorf("unmarshaling peer capabilities: %w", err)
 	}
