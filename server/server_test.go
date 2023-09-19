@@ -79,7 +79,7 @@ func TestServerStatus(t *testing.T) {
 		UserProfile: &tailcfg.UserProfile{
 			ID: 31337, LoginName: "elite@example.com", DisplayName: "Leet Q. Haxor",
 		},
-		CapMap: tailcfg.PeerCapMap{server.ACLCap: []json.RawMessage{rule}},
+		CapMap: tailcfg.PeerCapMap{server.ACLCap: []tailcfg.RawMessage{tailcfg.RawMessage(rule)}},
 	}
 
 	ss := setectest.NewServer(t, d, &setectest.ServerOptions{
