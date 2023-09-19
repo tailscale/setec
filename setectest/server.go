@@ -88,7 +88,7 @@ func NewServer(t *testing.T, db *DB, opts *ServerOptions) *Server {
 }
 
 // allAccessCap is an encoded JSON capability for full access to all secrets.
-var allAccessCap []json.RawMessage
+var allAccessCap []tailcfg.RawMessage
 
 func init() {
 	rule, err := json.Marshal(acl.Rule{
@@ -100,7 +100,7 @@ func init() {
 	if err != nil {
 		panic(err)
 	}
-	allAccessCap = []json.RawMessage{rule}
+	allAccessCap = []tailcfg.RawMessage{tailcfg.RawMessage(rule)}
 }
 
 // AllAccess is a WhoIs function implementation that returns a successful
