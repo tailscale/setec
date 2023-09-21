@@ -204,6 +204,7 @@ func TestBadCache(t *testing.T) {
 	}{
 		{"ReadFailed", badCache{}},
 		{"DecodeFailed", setec.NewMemCache(`{"bad":JSON*#$&(@`)},
+		{"InvalidCache", setec.NewMemCache(`{"alpha":{"Value":"blah", "Version":100}}`)},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

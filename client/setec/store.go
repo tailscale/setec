@@ -188,6 +188,9 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 		if err := json.Unmarshal(data, &s.active.m); err != nil {
 			s.logf("WARNING: error decoding cache: %v (continuing)", err)
 			clear(s.active.m) // reset
+		} else if !s.isActiveSetValid() {
+			s.logf("WARNING: cache is not valid; discarding it")
+			clear(s.active.m) // reset
 		}
 	}
 
@@ -533,6 +536,17 @@ func (s *Store) loadCache() ([]byte, error) {
 		return nil, nil
 	}
 	return s.cache.Read()
+}
+
+// isActiveSetValid reports whether the current active set is valid.
+// This is used during initializtion to check cache validity.
+func (s *Store) isActiveSetValid() bool {
+	for key, cs := range s.active.m {
+		if key == "" || cs == nil || cs.Secret == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func sleepFor(ctx context.Context, d time.Duration) {
