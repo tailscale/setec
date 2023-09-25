@@ -15,7 +15,7 @@ require (
 	github.com/tink-crypto/tink-go/v2 v2.0.0
 	golang.org/x/exp v0.0.0-20230725093048-515e97ebf090
 	golang.org/x/term v0.11.0
-	tailscale.com v1.1.1-0.20230918224724-d9ae7d670e43
+	tailscale.com v1.1.1-0.20230920164730-5f4d76c18c6d
 )
 
 require (
