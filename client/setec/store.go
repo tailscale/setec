@@ -250,7 +250,7 @@ func (s *Store) Close() error {
 // mechanism, but a caller may invoke Refresh directly if it wants to check for
 // new secret values at a specific moment.
 func (s *Store) Refresh(ctx context.Context) error {
-	_, err, _ := s.single.Do("poll", func() (any, error) {
+	ch := s.single.DoChan("poll", func() (any, error) {
 		s.countPolls.Add(1)
 		s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
 		updates := make(map[string]*api.SecretValue)
@@ -263,7 +263,12 @@ func (s *Store) Refresh(ctx context.Context) error {
 		}
 		return nil, nil
 	})
-	return err
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case res := <-ch:
+		return res.Err
+	}
 }
 
 // Secret returns a fetcher for the named secret. It returns nil if name does
