@@ -336,6 +336,13 @@ rsp, err := getClient().Method(ctx, args)
 // ...
 ```
 
+In addition, if the program needs to explicitly refresh the values of secrets
+at a specific time (for example, in response to an operator signal or other
+event) it may explicitly call the `Store` value's [`Refresh`][strefresh]
+method, which effects a poll of all known secrets synchronously. It is safe for
+the client to do this concurrently with a background poll; the store will
+coalesce the operations.
+
 ### Bootstrapping and Availability
 
 A reasonable concern when fetching secrets from a network service is what
@@ -439,3 +446,4 @@ if err != nil {
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
 [setecwatcher]: https://godoc.org/github.com/tailscale/setec/client/setec#Watcher
 [stserver]: https://godoc.org/github.com/tailscale/setec/setectest#Server
+[stserver]: https://godoc.org/github.com/tailscale/setec/client/setec#Store.Refresh

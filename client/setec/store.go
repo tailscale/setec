@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/tailscale/setec/types/api"
+	"golang.org/x/sync/singleflight"
 	"tailscale.com/types/logger"
 )
 
@@ -27,6 +28,7 @@ type Store struct {
 	allowLookup bool
 	newTicker   func(time.Duration) Ticker
 	timeNow     func() time.Time
+	single      singleflight.Group
 
 	// Undeclared secrets not accessed in at least this long are eligible to be
 	// purged from the cache. If zero, no expiry is performed.
@@ -239,6 +241,34 @@ func (s *Store) Close() error {
 	s.cancel()
 	<-s.done
 	return nil
+}
+
+// Refresh synchronously checks for new versions of all the secrets currently
+// known by s. It blocks until the refresh is complete or until ctx ends.
+//
+// Updates are managed automatically when a Store is created and by the polling
+// mechanism, but a caller may invoke Refresh directly if it wants to check for
+// new secret values at a specific moment.
+func (s *Store) Refresh(ctx context.Context) error {
+	ch := s.single.DoChan("poll", func() (any, error) {
+		s.countPolls.Add(1)
+		s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
+		updates := make(map[string]*api.SecretValue)
+		if err := s.poll(ctx, updates); err != nil {
+			s.countPollErrors.Add(1)
+			return nil, fmt.Errorf("[store] update poll failed: %w", err)
+		}
+		if err := s.applyUpdates(updates); err != nil {
+			return nil, fmt.Errorf("[store] applying updates failed: %w", err)
+		}
+		return nil, nil
+	})
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case res := <-ch:
+		return res.Err
+	}
 }
 
 // Secret returns a fetcher for the named secret. It returns nil if name does
@@ -463,15 +493,8 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 			}
 			return
 		case <-doPoll:
-			s.countPolls.Add(1)
-			s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
-			updates := make(map[string]*api.SecretValue)
-			if err := s.poll(ctx, updates); err != nil {
-				s.countPollErrors.Add(1)
-				s.logf("[store] update poll failed: %v (continuing)", err)
-			}
-			if err := s.applyUpdates(updates); err != nil {
-				s.logf("[store] applying updates failed: %v (continuing)", err)
+			if err := s.Refresh(ctx); err != nil {
+				s.logf("%s (continuing)", err)
 			}
 			t.Done()
 		}
