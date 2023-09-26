@@ -271,8 +271,9 @@ If the current active version of the secret still matches what the client
 requested, the server will report 304 Not Modified, indicating to the client
 that it still (already) has the active version. This allows the client to check
 for an update without sending secret values over the wire except when needed,
-and does not trigger an auditable access record unless the value or the
-permissions have changed.
+and does not trigger an audit-log record unless the server reveals the value of
+a secret to the client, or the permissions have changed (causing the client to
+be denied access).
 
 The Go client library provides a [`setec.Store`][setecstore] type that handles
 automatic updates using this polling mechanism, but the same logic can be
