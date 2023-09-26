@@ -51,7 +51,7 @@ repository. The API supports any language, however, so the examples below are
 written using the curl command-line tool.
 
 A program that wishes to fetch a secret at runtime does so by issuing an HTTPS
-POST request to the [`/api/get` method] of the secrets service.
+POST request to the `/api/get` method of the secrets service.
 
 For example:
 
@@ -261,7 +261,7 @@ larger active query load.
 A program that does not wish to restart to pick up new secret values can poll
 the secrets API periodically, to see whether a new version is available. To do
 this, the request to the `/api/get` method may include the current version the
-client is using, and set the `"updateIfChanged"` flag to `true`:
+client is using, and set the `"UpdateIfChanged"` flag to `true`:
 
 ```json
 {"Name":"dev/hello-world", "Version":7, "UpdateIfChanged":true}
@@ -446,4 +446,4 @@ if err != nil {
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
 [setecwatcher]: https://godoc.org/github.com/tailscale/setec/client/setec#Watcher
 [stserver]: https://godoc.org/github.com/tailscale/setec/setectest#Server
-[stserver]: https://godoc.org/github.com/tailscale/setec/client/setec#Store.Refresh
+[strefresh]: https://godoc.org/github.com/tailscale/setec/client/setec#Store.Refresh
