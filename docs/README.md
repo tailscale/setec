@@ -57,10 +57,10 @@ For example:
 
 ```shell
 curl -H sec-x-tailscale-no-browsers:setec -H content-type:application/json -X POST \
-  https://secrets.example.ts.net/api/get -d '{"name": "prod/myprogram/secret-name"}'
+  https://secrets.example.ts.net/api/get -d '{"Name": "prod/myprogram/secret-name"}'
 ```
 
-The `"name"` field specifies which secret to fetch. The name must be non-empty,
+The `"Name"` field specifies which secret to fetch. The name must be non-empty,
 but is otherwise not interpreted by the service, and you should choose names
 that make sense for your environment. Here we're using a basic path layout,
 grouping secrets by deployment environment (`dev` vs. `prod`) and program.
@@ -264,7 +264,7 @@ this, the request to the `/api/get` method may include the current version the
 client is using, and set the `"updateIfChanged"` flag to `true`:
 
 ```json
-{"name":"dev/hello-world", "version":7, "updateIfChanged":true}
+{"Name":"dev/hello-world", "Version":7, "UpdateIfChanged":true}
 ```
 
 If the current active version of the secret still matches what the client
