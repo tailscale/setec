@@ -28,7 +28,7 @@ the server maintains secrets in encrypted storage, keeps an audit log of
 accesses, and manages periodic backups.
 
 The setec server integrates with existing key-management infrastructure to
-bootstrap its own deployment (as of 24-Sep-2023, the AWS KMS is supported).
+bootstrap its own deployment (as of 24-Sep-2023, AWS KMS is supported).
 Once the server is running on a tailnet, other programs can use it to access
 their production secrets with a basic WireGuard-encrypted HTTP request, rather
 than having to distribute secrets via files, environment variables, or manual
