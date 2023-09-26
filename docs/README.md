@@ -385,8 +385,13 @@ st, err := setec.NewStore(ctx, setec.StoreConfig{
 With the cache enabled, the store will automatically persist new secrets
 fetched from the server into the cache as they become available. Morever, when
 the store is created, the store will not block waiting for the server if all
-the requested secrets already have a version stored in the cache. This permits
-the program to start up even if the setec server is not immediately available.
+the requested secrets already have a version stored in the cache.
+
+**Enabling a file cache represents a security tradeoff:** The cache records all
+the program's secret values to local storage, which means they can be read by
+(other) programs and users with access to that storage. In return, however, the
+program can start up immediately using cached data, even if the secrets server
+is not reachable when it launches.
 
 ## Testing
 
