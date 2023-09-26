@@ -371,13 +371,13 @@ In Go, you can enable a file cache using `setec.NewFileCache`:
 // Create or open a cache associated with the specified file path.
 fc, err := setec.NewFileCache("/data/secrets.cache")
 if err != nil {
-   return fmt.Errorf("creating cache: %w", err)
+    return fmt.Errorf("creating cache: %w", err)
 }
 st, err := setec.NewStore(ctx, setec.StoreConfig{
-   Client:       setec.Client{Server: "https://secrets.example.ts.net"},
-   Secrets:      []string{"secret1", "secret2", "secret3"},
-   PollInterval: 12*time.Hour,
-   Cache:        fc,
+    Client:       setec.Client{Server: "https://secrets.example.ts.net"},
+    Secrets:      []string{"secret1", "secret2", "secret3"},
+    PollInterval: 12 * time.Hour,
+    Cache:        fc,
 })
 // ...
 ```
@@ -420,12 +420,12 @@ defer hs.Close()
 
 // Start a setec.Store talking to this server.
 st, err := setec.NewStore(context.Background(), setec.StoreConfig{
-   // Note the client here uses the httptest URL and client.
-   Client:  setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
-   Secrets: []string{"alpha", "bravo"},
+    // Note the client here uses the httptest URL and client.
+    Client:  setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+    Secrets: []string{"alpha", "bravo"},
 })
 if err != nil {
-   t.Fatalf("NewStore: %v", err)
+    t.Fatalf("NewStore: %v", err)
 }
 // ... the rest of the test
 ```
