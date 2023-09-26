@@ -340,18 +340,30 @@ rsp, err := getClient().Method(ctx, args)
 
 A reasonable concern when fetching secrets from a network service is what
 happens if the secrets service is not reachable when a program needs to fetch a
-secret (e.g., when it is starting up). A good answer depends on the nature of
-the program: Batch processing tools can usually afford to wait and retry until
-the service becomes available. Interactive services, by contrast, may not be
-able to tolerate waiting.
+secret. A good answer depends on the nature of the program: Batch processing
+tools can usually afford to wait and retry until the service becomes
+available. Interactive services, by contrast, may not be able to tolerate
+waiting.
 
-A program that needs be able to start even when the secrets server is
-unavailable can trade a bit of security for availability by caching the active
-versions of the secrets it needs in a local file. When the program start or
-restarts, it can fall back to the cached values if the secrets service is not
-immediately available. The Go client library's [`setec.Store`][setecstore] type
-supports this kind of caching as an optional feature, and the same logic can be
-implemented in any language.
+To minimize the impact of a secrets server being temporarily unreachable, a
+program should fetch all desired secrets at startup and cache them (typically
+in memory) while running. If the secrets service is unreachable when the
+program first starts, it should wait and retry as necessary, or fail the
+startup process. Once the program has initial values for all its desired
+secrets, it can poll for new values in the background.
+
+This ensures that even if the secrets server is occasionally unreachable, the
+program always has a good value for each secret, even if one that is
+(temporarily) slightly stale.  The Go client library's [`setec.Store`][setecstore]
+type implements this logic automatically (see the example above).
+
+A program that needs be able to start immediately, even when the secrets server
+is unavailable, can trade a bit of security for availability by caching the
+active versions of the secrets it needs in persistent storage (e.g., a local
+file). When the program start or restarts, it can fall back to the cached
+values if the secrets service is not immediately available. The Go client
+library's [`setec.Store`][setecstore] type supports this kind of caching as an
+optional feature, and the same logic can be implemented in any language.
 
 In Go, you can enable a file cache using `setec.NewFileCache`:
 
