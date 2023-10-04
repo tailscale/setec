@@ -475,7 +475,7 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 	defer close(done)
 
 	// Jitter polls by ±10% of the total interval to avert a thundering herd.
-	jitter := time.Duration(rand.Intn(int(interval)/20) - (int(interval) / 10))
+	jitter := time.Duration(rand.Intn(2*int(interval)/10) - (int(interval) / 10))
 
 	t := s.newTicker(interval + jitter)
 	defer t.Stop()
