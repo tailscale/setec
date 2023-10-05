@@ -315,13 +315,23 @@ a secret with a channel that notifies when a new secret value is available:
 ```go
 // Get the handle, as before.
 apiKey := st.Watcher("prod/my-program/secret-1")
+```
 
+A `Watcher` contains a level-triggered channel that receives a value when a new
+version of the secret has been applied. You can use this to update API clients
+and other values that depend on the current secret value, but which might be
+expensive to re-construct every time they're used.
+
+For example, here is one way to update a client value based on a watcher:
+
+```go
 // Create a client with the current value.
 cli := someservice.NewClient("username", apiKey.Get())
 
 // Make a helper that will refresh the client when the secret updates.
 // This example assumes no concurrency; you may need a lock if multiple
 // goroutines will request a client at the same time.
+// See below for a simple way to handle that.
 getClient := func() *someservice.Client {
    select {
    case <-apiKey.Ready():
@@ -336,12 +346,39 @@ rsp, err := getClient().Method(ctx, args)
 // ...
 ```
 
-In addition, if the program needs to explicitly refresh the values of secrets
-at a specific time (for example, in response to an operator signal or other
-event) it may explicitly call the `Store` value's [`Refresh`][strefresh]
-method, which effects a poll of all known secrets synchronously. It is safe for
-the client to do this concurrently with a background poll; the store will
-coalesce the operations.
+As noted in the comments, the above example does not work if multiple
+goroutines may access the client concurrently, since they will race on reading
+and updating the `cli` variable.  You could add a lock, but the client library
+also includes a [`setec.Updater`][setecupdater] type that will manage updates
+for you even with concurrent use:
+
+```go
+// Construct an updater, given a callback that takes a secret value and returns
+// a new someservice client using that secret.
+client := setec.NewUpdater(apiKey, func(secret []byte) *someservice.Client {
+   return someservice.NewClient("username", secret)
+})
+
+// Now, when you need a client, use the updater:
+rsp, err := client.Get().Method(ctx, args)
+// ...
+```
+
+The updater constructs the initial client by invoking the callback with the
+value of `w` when `NewUpdater` is called. Thereafter, calls to `u.Get()` will
+return the same client until the secret in `w` changes. When that happens, the
+updater invokes the callback again with the new secret value, to get a fresh
+client.
+
+#### Explicit Refresh
+
+Ordinarily a `Store` will automatically update secret values in the background.
+If a program needs to explicitly refresh the values of secrets at a specific
+time (for example, in response to an operator signal or other event) it may
+explicitly call the `Store` value's [`Refresh`][strefresh] method, which
+effects a poll of all known secrets synchronously. It is safe for the client to
+do this concurrently with a background poll; the store will coalesce the
+operations.
 
 ### Bootstrapping and Availability
 
@@ -444,6 +481,7 @@ if err != nil {
 [setecclient]: https://godoc.org/github.com/tailscale/setec/client/setec#Client
 [setecstore]: https://godoc.org/github.com/tailscale/setec/client/setec#Store
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
+[setecupdater]: https://godoc.org/github.com/tailscale/setec/client/setec#Updater
 [setecwatcher]: https://godoc.org/github.com/tailscale/setec/client/setec#Watcher
 [stserver]: https://godoc.org/github.com/tailscale/setec/setectest#Server
 [strefresh]: https://godoc.org/github.com/tailscale/setec/client/setec#Store.Refresh
