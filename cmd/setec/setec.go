@@ -96,8 +96,9 @@ With --if-changed, return the active value only if it differs from --version.`,
 				Usage: "<secret-name>",
 				Help: `Put a new value for the specified secret.
 
-With --from-file, the new value is read from the specified file; otherwise
-the user is prompted for a new value and confirmation at the terminal.`,
+With --from-file, the new value is read from the specified file; otherwise if
+stdin is connected to a pipe, its contents are fully read to obtain the new
+value. Otherwise, the user is prompted for a new value and confirmation.`,
 
 				SetFlags: command.Flags(flax.MustBind, &putArgs),
 				Run:      command.Adapt(runPut),
