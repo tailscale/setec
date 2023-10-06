@@ -23,6 +23,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creachadair/command"
 	"github.com/creachadair/flax"
@@ -379,7 +380,11 @@ func runPut(env *command.Env, name string) error {
 		if err != nil {
 			return err
 		}
-		value = bytes.TrimSpace(value)
+		// If the value we read is all valid UTF-8, trim leading and trailing
+		// whitespace.  If not, the value is binary and we shouldn't do that.
+		if utf8.Valid(value) {
+			value = bytes.TrimSpace(value)
+		}
 	} else if term.IsTerminal(int(os.Stdin.Fd())) {
 		// Standard input is connected to a terminal; prompt the human to type or
 		// paste the value and require confirmation.
