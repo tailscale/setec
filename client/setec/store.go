@@ -73,15 +73,26 @@ type StoreConfig struct {
 	// The service URL must be non-empty.
 	Client Client
 
-	// Secrets are the names of the secrets this Store should retrieve. Unless
-	// AllowLookup is true, only secrets named here can be read out of the store
-	// and an error is reported if no secrets are listed here.
+	// Secrets are the names of secrets this Store should retrieve.
+	//
+	// Unless AllowLookup is true, only secrets named here or in the Structs
+	// field can be read out of the store and an error is reported if no secrets
+	// are listed.
 	Secrets []string
+
+	// Structs are optional struct values with tagged fields that should be
+	// populated with secrets from the store at initialization time.
+	//
+	// Unless AllowLookup is true, only secrets named here or in the Secrets
+	// field can be read out of the store and an error is reported if no secrets
+	// are listed.
+	Structs []Struct
 
 	// AllowLookup instructs the store to allow the caller to look up secrets
 	// not known to the store at the time of construction. If false, only
-	// secrets pre-declared in the Secrets slice can be fetched, and the Lookup
-	// and LookupWatcher methods will report an error for all un-listed secrets.
+	// secrets pre-declared in the Secrets and Structs slices can be fetched,
+	// and the Lookup and LookupWatcher methods will report an error for all
+	// un-listed secrets.
 	AllowLookup bool
 
 	// Cache, if non-nil, is a cache that persists secrets locally.
@@ -161,7 +172,12 @@ func (c StoreConfig) timeNow() func() time.Time {
 func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	if cfg.Client.Server == "" {
 		return nil, errors.New("no service URL is set")
-	} else if len(cfg.Secrets) == 0 && !cfg.AllowLookup {
+	}
+
+	secrets, structs, err := cfg.secretNames()
+	if err != nil {
+		return nil, err
+	} else if len(secrets) == 0 && !cfg.AllowLookup {
 		return nil, errors.New("no secrets are listed")
 	}
 
@@ -203,7 +219,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	// after completing initialization, so that we will have a cache of the
 	// latest data in case we restart before the next poll.
 	var wantFlush bool
-	for _, name := range cfg.Secrets {
+	for _, name := range secrets {
 		if _, ok := s.active.m[name]; ok {
 			s.active.m[name].Declared = true
 		} else {
@@ -219,6 +235,13 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	if wantFlush {
 		if err := s.flushCacheLocked(); err != nil {
 			s.logf("WARNING: error flushing cache: %v", err)
+		}
+	}
+
+	// Plumb secrets in to struct fields, if necessary.
+	for _, fi := range structs {
+		if err := fi.Apply(s); err != nil {
+			return nil, fmt.Errorf("apply secrets to struct: %w", err)
 		}
 	}
 
@@ -692,4 +715,34 @@ func (c *cachedSecret) lastAccessTime() time.Time {
 type secretState struct {
 	expired bool
 	version api.SecretVersion
+}
+
+// Struct describes a struct value with tagged fields that should be populated
+// with secrets from a Store.
+type Struct struct {
+	// Value must be a non-nil pointer to a value of struct type, having at
+	// least one field tagged with a "setec" field tag.
+	// See Fields for a description of the tag format.
+	Value any
+
+	// Prefix is an optional prefix that should be prepended to each secret
+	// described by a tag in Value to obtain the secret name to look up.
+	Prefix string
+}
+
+func (c StoreConfig) secretNames() ([]string, []*Fields, error) {
+	sec := c.Secrets
+	var svs []*Fields
+	for _, s := range c.Structs {
+		fs, err := ParseFields(s.Value, s.Prefix)
+		if err != nil {
+			return nil, nil, fmt.Errorf("parse struct fields: %w", err)
+		}
+
+		// We don't need to deduplicate here, the constructor merges all the
+		// names into a map.
+		sec = append(sec, fs.Secrets()...)
+		svs = append(svs, fs)
+	}
+	return sec, svs, nil
 }
