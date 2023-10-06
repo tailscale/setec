@@ -96,8 +96,9 @@ With --if-changed, return the active value only if it differs from --version.`,
 				Usage: "<secret-name>",
 				Help: `Put a new value for the specified secret.
 
-With --from-file, the new value is read from the specified file; otherwise
-the user is prompted for a new value and confirmation at the terminal.`,
+With --from-file, the new value is read from the specified file; otherwise if
+stdin is connected to a pipe, its contents are fully read to obtain the new
+value. Otherwise, the user is prompted for a new value and confirmation.`,
 
 				SetFlags: command.Flags(flax.MustBind, &putArgs),
 				Run:      command.Adapt(runPut),
@@ -361,7 +362,7 @@ func runGet(env *command.Env, name string) error {
 }
 
 var putArgs struct {
-	File string `flag:"from-file,Read secret value from this file instead of prompting"`
+	File string `flag:"from-file,Read secret value from this file instead of stdin"`
 }
 
 func runPut(env *command.Env, name string) error {
@@ -372,13 +373,16 @@ func runPut(env *command.Env, name string) error {
 
 	var value []byte
 	if putArgs.File != "" {
+		// The user requested we use input from a file.
 		var err error
 		value, err = os.ReadFile(putArgs.File)
 		if err != nil {
 			return err
 		}
 		value = bytes.TrimSpace(value)
-	} else {
+	} else if term.IsTerminal(int(os.Stdin.Fd())) {
+		// Standard input is connected to a terminal; prompt the human to type or
+		// paste the value and require confirmation.
 		var err error
 		io.WriteString(os.Stdout, "Enter secret: ")
 		os.Stdout.Sync()
@@ -400,6 +404,15 @@ func runPut(env *command.Env, name string) error {
 		if !bytes.Equal(value, s2) {
 			return errors.New("secrets do not match, aborting")
 		}
+	} else {
+		var err error
+		value, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read from stdin: %w", err)
+		} else if len(value) == 0 {
+			return errors.New("empty secret value")
+		}
+		fmt.Fprintf(env, "Read %d bytes from stdin\n", len(value))
 	}
 
 	ver, err := c.Put(env.Context(), name, value)
