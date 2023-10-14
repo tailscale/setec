@@ -1,13 +1,13 @@
 # setec API
 
 > WARNING: This API is still under active development, and subject to change.
-> This document is up-to-date as of 16-Aug-2023.
+> This document is up-to-date as of 13-Oct-2023.
 
-The setec service exports an API over HTTP. All methods of the API are called
-via HTTP POST, with request and response payloads transmitted as JSON.
+The setec service exports an API over HTTPS. All methods of the API are called
+via HTTPS POST, with request and response payloads transmitted as JSON.
 
 Calls are authenticated via Tailscale and authorized using peer capabilities.
-The peer capability label is `https://tailscale.com/cap/secrets`.
+The peer capability label is `tailscale.com/cap/secrets`.
 
 Calls to the API must include a header `Sec-X-Tailscale-No-Browsers: setec`.
 This prevents browser scripts from initiating calls to the service.
@@ -24,7 +24,7 @@ This prevents browser scripts from initiating calls to the service.
 - `/api/list`: List metadata for all secrets to which the caller has `info`
   permission.
 
-  **Request:** `api.ListRequest`
+  **Request:** `api.ListRequest` (empty, send `null` or `{}`).
 
   **Response:** array of `api.SecretInfo`
 
@@ -44,6 +44,8 @@ This prevents browser scripts from initiating calls to the service.
   {"Name":"example"}                -- fetch the active version
   {"Name":"example","Version":0}    -- fetch the active version
   {"Name":"example","Version":15}   -- fetch the specified version
+
+  {"Name":"example","Version":2,"UpdateIfChanged":true}  -- see below
   ```
 
   **Response:** `api.SecretValue`
@@ -52,6 +54,17 @@ This prevents browser scripts from initiating calls to the service.
   ```json
   {"Value":"aGVsbG8sIHdvcmxk","Version":15}
   ```
+
+  **Conditional get:** If a request includes a `"Version"` and sets
+  `"UpdateIfChanged": true` the server returns the latest active version of the
+  secret if and only if the latest active version number is different from
+  `"Version"`. If the latest active version is equal to `"Version"` the server
+  reports 304 Not modified and returns no value. This may be used to poll for
+  updates without generating auditable access.
+
+  If `"Version"` is unset or 0, the `"UpdateIfChanged"` flag is ignored and the
+  latest active version is returned unconditionally.
+
 
 - `/api/info`: Get metadata for a single secret.
 
@@ -88,6 +101,10 @@ This prevents browser scripts from initiating calls to the service.
   ```json
   4
   ```
+
+  If the value added is exactly equal to the existing active version of the
+  secret, the server reports the existing active version without modifying the
+  store.
 
 - `/api/activate`: Set the active version of an existing secret.
 
