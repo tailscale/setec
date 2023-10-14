@@ -16,7 +16,7 @@ require (
 	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 	golang.org/x/sync v0.3.0
 	golang.org/x/term v0.13.0
-	tailscale.com v1.1.1-0.20231011212558-9d96e0526737
+	tailscale.com v1.1.1-0.20231014030132-5c555cdcbb5f
 )
 
 require (
