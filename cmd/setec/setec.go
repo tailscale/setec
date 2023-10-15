@@ -363,7 +363,8 @@ func runGet(env *command.Env, name string) error {
 }
 
 var putArgs struct {
-	File string `flag:"from-file,Read secret value from this file instead of stdin"`
+	File    string `flag:"from-file,Read secret value from this file instead of stdin"`
+	EmptyOK bool   `flag:"empty-ok,Allow an empty secret value"`
 }
 
 func runPut(env *command.Env, name string) error {
@@ -396,7 +397,7 @@ func runPut(env *command.Env, name string) error {
 		if err != nil {
 			return err
 		}
-		if len(value) == 0 {
+		if len(value) == 0 && !putArgs.EmptyOK {
 			return errors.New("no secret provided, aborting")
 		}
 		io.WriteString(os.Stdout, "Confirm secret: ")
@@ -414,7 +415,7 @@ func runPut(env *command.Env, name string) error {
 		value, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("read from stdin: %w", err)
-		} else if len(value) == 0 {
+		} else if len(value) == 0 && !putArgs.EmptyOK {
 			return errors.New("empty secret value")
 		}
 		fmt.Fprintf(env, "Read %d bytes from stdin\n", len(value))
