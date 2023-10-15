@@ -386,6 +386,9 @@ func runPut(env *command.Env, name string) error {
 		if utf8.Valid(value) {
 			value = bytes.TrimSpace(value)
 		}
+		if len(value) == 0 && !putArgs.EmptyOK {
+			return errors.New("empty secret value")
+		}
 	} else if term.IsTerminal(int(os.Stdin.Fd())) {
 		// Standard input is connected to a terminal; prompt the human to type or
 		// paste the value and require confirmation.
