@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/tailscale/setec/types/api"
 	"golang.org/x/exp/slices"
 )
 
@@ -36,10 +37,13 @@ func ParseFields(v any, namePrefix string) (*Fields, error) {
 // Fields is a helper for plumbing secrets to the fields of struct values.  The
 // [ParseFields] function recognizes fields of a struct with a tag like:
 //
-//	setec:"base-secret-name[,json]"
+//	setec:"base-secret-name[,json][,allowmissing]"
 //
 // The resulting Fields value fetches the secrets identified by these tags from
-// a setec.Store, and injects their values into the fields.
+// a setec.Store, and injects their values into the fields. By default, an
+// error is reported if a tagged secret is not found in the store; adding the
+// optional "allowmissing" verb causes missing or inaccessible secrets to be
+// silently replaced with a static empty value.
 //
 // # Background
 //
@@ -149,6 +153,7 @@ type fieldInfo struct {
 	unmarshal  func([]byte) error // if non-nil, call to unmarshal the value
 	isJSON     bool               // if true, secret must be JSON encoded
 	vtype      reflect.Type       // type of field pointed to by value
+	missingOK  bool               // treat missing secret values as empty without error
 }
 
 // apply sets the target of fi.value to the secret named. It reports an error
@@ -160,7 +165,10 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	if f.isJSON {
 		v, err := s.LookupSecret(ctx, fullName)
 		if err != nil {
-			return err
+			if !f.missingOK || !isMissingErr(err) {
+				return err
+			}
+			v = StaticSecret("")
 		}
 		return json.Unmarshal(v.Get(), f.value.Interface())
 	}
@@ -168,7 +176,10 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	if f.vtype == watcherType {
 		w, err := s.LookupWatcher(ctx, fullName)
 		if err != nil {
-			return err
+			if !f.missingOK || !isMissingErr(err) {
+				return err
+			}
+			w = Watcher{secret: StaticSecret("")} // never ready
 		}
 		f.value.Elem().Set(reflect.ValueOf(w))
 		return nil
@@ -176,7 +187,10 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 
 	v, err := s.LookupSecret(ctx, fullName)
 	if err != nil {
-		return err
+		if !f.missingOK || !isMissingErr(err) {
+			return err
+		}
+		v = StaticSecret("")
 	}
 	if f.unmarshal != nil {
 		return f.unmarshal(v.Get())
@@ -192,6 +206,10 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 		return fmt.Errorf("unexpected field type %v", f.vtype)
 	}
 	return nil
+}
+
+func isMissingErr(err error) bool {
+	return errors.Is(err, api.ErrNotFound) || errors.Is(err, api.ErrAccessDenied)
 }
 
 var (
@@ -229,6 +247,7 @@ func parseFields(obj any) ([]fieldInfo, error) {
 			value:      v.Elem().FieldByIndex(ft.Index).Addr(),
 			isJSON:     slices.Contains(parts[1:], "json"),
 			vtype:      ft.Type,
+			missingOK:  slices.Contains(parts[1:], "allowmissing"),
 		}
 		if !fi.isJSON {
 			if u := checkUnmarshal(fi.value); u != nil {

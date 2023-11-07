@@ -131,6 +131,46 @@ func TestFields(t *testing.T) {
 	}
 }
 
+func TestMissingFields(t *testing.T) {
+	db := setectest.NewDB(t, nil)
+	db.MustPut(db.Superuser, "int-val", "12345")
+
+	ss := setectest.NewServer(t, db, nil)
+	hs := httptest.NewServer(ss.Mux)
+	defer hs.Close()
+
+	st, err := setec.NewStore(context.Background(), setec.StoreConfig{
+		Client:      setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+		AllowLookup: true,
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer st.Close()
+
+	type testStruct struct {
+		S setec.Secret `setec:"string-val,allowmissing"`
+		Z int          `setec:"int-val,json"`
+	}
+
+	tf := testStruct{S: setec.StaticSecret("you do not see me"), Z: 9}
+	f, err := setec.ParseFields(&tf, "")
+	if err != nil {
+		t.Fatalf("ParseFields: unexpected error: %v", err)
+	}
+
+	if err := f.Apply(st); err != nil {
+		t.Errorf("Apply failed: %v", err)
+	}
+	if tf.Z != 12345 {
+		t.Errorf("Field Z: got %d, want 12345", tf.Z)
+	}
+	if got := string(tf.S.Get()); got != "" {
+		t.Errorf(`Field S: got %q, want ""`, got)
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	checkFail := func(input any, wantErr string) func(t *testing.T) {
 		return func(t *testing.T) {
