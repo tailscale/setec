@@ -692,6 +692,49 @@ func (w Watcher) notify() {
 	}
 }
 
+// NewUpdater creates a new Updater that tracks updates to a value based on new
+// secret versions delivered to w.  The newValue function returns a new value
+// of the type based on its argument, a secret value.
+//
+// The initial value is constructed by calling newValue with the current secret
+// version in w at the time NewUpdater is called.  Calls to the Get method
+// update the value as needed when w changes.
+//
+// The updater synchronizes calls to Get and newValue, so the callback can
+// safely interact with shared state without additional locking.
+func NewUpdater[T any](w Watcher, newValue func([]byte) T) *Updater[T] {
+	return &Updater[T]{
+		newValue: newValue,
+		w:        w,
+		value:    newValue(w.Get()),
+	}
+}
+
+// An Updater tracks a value whose state depends on a secret, together with a
+// watcher for updates to the secret. The caller provides a function to update
+// the value when a new version of the secret is delivered, and the Updater
+// manages access and updates to the value.
+type Updater[T any] struct {
+	newValue func([]byte) T
+	w        Watcher
+	mu       sync.Mutex
+	value    T
+}
+
+// Get fetches the current value of u, first updating it if the secret has
+// changed.  It is safe to call Get concurrently from multiple goroutines.
+func (u *Updater[T]) Get() T {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	select {
+	case <-u.w.Ready():
+		u.value = u.newValue(u.w.Get())
+	default:
+		// no change, use the existing value
+	}
+	return u.value
+}
+
 type cachedSecret struct {
 	Secret     *api.SecretValue `json:"secret"`
 	LastAccess int64            `json:"lastAccess,string"`

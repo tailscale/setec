@@ -6,6 +6,7 @@ package setec_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -342,6 +343,56 @@ func TestWatcher(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		// OK
 	}
+}
+
+func TestUpdater(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "label", "malarkey") // active
+	v2 := d.MustPut(d.Superuser, "label", "dog-faced pony soldier")
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	ctx := context.Background()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
+	pollTicker := newFakeTicker()
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:     cli,
+		Secrets:    []string{"label"},
+		PollTicker: pollTicker,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+	defer st.Close()
+
+	// Set up an updater that tracks a string against the secret named "label".
+	u := setec.NewUpdater(st.Watcher("label"), func(secret []byte) string {
+		return fmt.Sprintf("value: %q", secret)
+	})
+	checkValue := func(label, want string) {
+		if got := u.Get(); got != want {
+			t.Errorf("%s: got %q, want %q", label, got, want)
+		}
+	}
+
+	checkValue("Initial value", `value: "malarkey"`)
+
+	// The secret gets updated...
+	if err := cli.Activate(ctx, "label", v2); err != nil {
+		t.Fatalf("Activate to %v: unexpected error: %v", v2, err)
+	}
+	pollTicker.Poll()
+
+	// The next get should see the updated value.
+	checkValue("Updated value", `value: "dog-faced pony soldier"`)
+
+	pollTicker.Poll()
+
+	// The next get should not see a change.
+	checkValue("Updated value", `value: "dog-faced pony soldier"`)
 }
 
 func TestLookup(t *testing.T) {
