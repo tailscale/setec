@@ -99,7 +99,11 @@ With --if-changed, return the active value only if it differs from --version.`,
 
 With --from-file, the new value is read from the specified file; otherwise if
 stdin is connected to a pipe, its contents are fully read to obtain the new
-value. Otherwise, the user is prompted for a new value and confirmation.`,
+value. Otherwise, the user is prompted for a new value and confirmation.
+
+By default, leading and trailing whitespace is trimmed from plain text values.
+Use --verbatim to suppress this behaviour for values where whitespace matters,
+such as SSH keys.`,
 
 				SetFlags: command.Flags(flax.MustBind, &putArgs),
 				Run:      command.Adapt(runPut),
@@ -363,8 +367,9 @@ func runGet(env *command.Env, name string) error {
 }
 
 var putArgs struct {
-	File    string `flag:"from-file,Read secret value from this file instead of stdin"`
-	EmptyOK bool   `flag:"empty-ok,Allow an empty secret value"`
+	File     string `flag:"from-file,Read secret value from this file instead of stdin"`
+	EmptyOK  bool   `flag:"empty-ok,Allow an empty secret value"`
+	Verbatim bool   `flag:"verbatim,Do not trim whitespace from plain text values"`
 }
 
 func runPut(env *command.Env, name string) error {
@@ -381,9 +386,10 @@ func runPut(env *command.Env, name string) error {
 		if err != nil {
 			return err
 		}
-		// If the value we read is all valid UTF-8, trim leading and trailing
-		// whitespace.  If not, the value is binary and we shouldn't do that.
-		if utf8.Valid(value) {
+		// If the value we read is all valid UTF-8 and the user has not asked us
+		// to do otherwise, trim leading and trailing whitespace.  For non-text
+		// inputs we shouldn't do that.
+		if utf8.Valid(value) && !putArgs.Verbatim {
 			value = bytes.TrimSpace(value)
 		}
 		if len(value) == 0 && !putArgs.EmptyOK {
