@@ -241,7 +241,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 
 	// Plumb secrets in to struct fields, if necessary.
 	for _, fi := range structs {
-		if err := fi.Apply(s); err != nil {
+		if err := fi.Apply(ctx, s); err != nil {
 			return nil, fmt.Errorf("apply secrets to struct: %w", err)
 		}
 	}
@@ -331,25 +331,28 @@ func (s *Store) secretLocked(name string) Secret {
 // latest active version of the secret from the service and either adds it to
 // the collection or reports an error.  LookupSecret does not automatically
 // retry in case of errors.
-func (s *Store) LookupSecret(name string) (Secret, error) {
+func (s *Store) LookupSecret(ctx context.Context, name string) (Secret, error) {
 	if f := s.Secret(name); f != nil {
 		return f, nil
 	} else if !s.allowLookup {
 		return nil, errors.New("lookup is not enabled")
 	}
-	return s.lookupSecretInternal(name)
+	return s.lookupSecretInternal(ctx, name)
 }
 
 // lookupSecretInternal fetches the specified secret from the service and,
 // if successful, installs it into the active set.
 // The caller must not hold the s.active lock; the call to the service is
 // performed outside the lock to avoid stalling other readers.
-func (s *Store) lookupSecretInternal(name string) (Secret, error) {
-	// Impose a loose deadline so requests do not stall forever if the
-	// infrastructure is farkakte.
-	getCtx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
-	defer cancel()
-	sv, err := s.client.Get(getCtx, name)
+func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, error) {
+	// Impose a loose deadline if ctx doesn't already have one, so requests do
+	// not stall forever if the infrastructure is farkakte.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(s.ctx, 5*time.Minute)
+		defer cancel()
+	}
+	sv, err := s.client.Get(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("lookup %q: %w", name, err)
 	}
@@ -383,7 +386,7 @@ func (s *Store) Watcher(name string) Watcher {
 // latest active version of the secret from the service and either adds it to
 // the collection or reports an error.
 // LookupWatcher does not automatically retry in case of errors.
-func (s *Store) LookupWatcher(name string) (Watcher, error) {
+func (s *Store) LookupWatcher(ctx context.Context, name string) (Watcher, error) {
 	s.active.Lock()
 	defer s.active.Unlock()
 	var secret Secret
@@ -397,7 +400,7 @@ func (s *Store) LookupWatcher(name string) (Watcher, error) {
 		got, err := func() (Secret, error) {
 			s.active.Unlock() // NOTE: This order is intended.
 			defer s.active.Lock()
-			return s.lookupSecretInternal(name)
+			return s.lookupSecretInternal(ctx, name)
 		}()
 		if err != nil {
 			return Watcher{}, err

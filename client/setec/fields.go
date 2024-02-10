@@ -4,6 +4,7 @@
 package setec
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -121,11 +122,11 @@ func (f *Fields) Secrets() []string {
 // Note: When applying secrets to struct fields from an existing Store, the
 // AllowLookup option of the Store must be enabled, or else Apply will report
 // an error for any field that refers to a secret not already available.
-func (f *Fields) Apply(s *Store) error {
+func (f *Fields) Apply(ctx context.Context, s *Store) error {
 	var errs []error
 	for _, fi := range f.fields {
 		fullName := path.Join(f.prefix, fi.secretName)
-		if err := fi.apply(s, fullName); err != nil {
+		if err := fi.apply(ctx, s, fullName); err != nil {
 			errs = append(errs, fmt.Errorf("apply %q to field %q: %w", fullName, fi.fieldName, err))
 		}
 	}
@@ -146,9 +147,9 @@ type fieldInfo struct {
 //
 // If f.isJSON is true, the data are unmarshaled as JSON.
 // Otherwise, the data are converted to the target type and copied.
-func (f fieldInfo) apply(s *Store, fullName string) error {
+func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	if f.isJSON {
-		v, err := s.LookupSecret(fullName)
+		v, err := s.LookupSecret(ctx, fullName)
 		if err != nil {
 			return err
 		}
@@ -156,7 +157,7 @@ func (f fieldInfo) apply(s *Store, fullName string) error {
 	}
 
 	if f.vtype == watcherType {
-		w, err := s.LookupWatcher(fullName)
+		w, err := s.LookupWatcher(ctx, fullName)
 		if err != nil {
 			return err
 		}
@@ -164,7 +165,7 @@ func (f fieldInfo) apply(s *Store, fullName string) error {
 		return nil
 	}
 
-	v, err := s.LookupSecret(fullName)
+	v, err := s.LookupSecret(ctx, fullName)
 	if err != nil {
 		return err
 	}

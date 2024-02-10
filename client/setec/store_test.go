@@ -112,10 +112,10 @@ func TestStore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Unexpected error: %v", err)
 		}
-		if s, err := st.LookupSecret("bravo"); err == nil {
+		if s, err := st.LookupSecret(ctx, "bravo"); err == nil {
 			t.Errorf("Lookup(bravo): got %q, want error", s.Get())
 		}
-		if w, err := st.LookupWatcher("bravo"); err == nil {
+		if w, err := st.LookupWatcher(ctx, "bravo"); err == nil {
 			t.Errorf("Lookup(brav0: got %q, want error", w.Get())
 		}
 	})
@@ -440,21 +440,21 @@ func TestLookup(t *testing.T) {
 	}
 
 	// Case 3: We can look up a secret for "green".
-	if s, err := st.LookupSecret("green"); err != nil {
+	if s, err := st.LookupSecret(ctx, "green"); err != nil {
 		t.Errorf("Lookup(green): unexepcted error: %v", err)
 	} else if got, want := string(s.Get()), "eggs and ham"; got != want {
 		t.Errorf("Lookup(green): got %q, want %q", got, want)
 	}
 
 	// Case 4: We can look up a watcher for "blue".
-	if w, err := st.LookupWatcher("blue"); err != nil {
+	if w, err := st.LookupWatcher(ctx, "blue"); err != nil {
 		t.Errorf("Lookup(blue): unexpected error: %v", err)
 	} else if got, want := string(w.Get()), "dolphins"; got != want {
 		t.Errorf("Lookup(blue): got %q, want %q", got, want)
 	}
 
 	// Case 5: We still can't lookup a non-existent secret.
-	if s, err := st.LookupSecret("orange"); err == nil {
+	if s, err := st.LookupSecret(ctx, "orange"); err == nil {
 		t.Errorf("Lookup(orange): got %q, want error", s.Get())
 	} else {
 		t.Logf("Lookup(orange) correctly failed: %v", err)
@@ -496,11 +496,11 @@ func TestCacheExpiry(t *testing.T) {
 		defer st.Close()
 
 		advance(25 * time.Second)
-		if _, err := st.LookupSecret("plum"); err != nil {
+		if _, err := st.LookupSecret(ctx, "plum"); err != nil {
 			t.Fatalf("Lookup(plum): unexpected error: %v", err)
 		}
 		advance(25 * time.Second)
-		if _, err := st.LookupSecret("cherry"); err != nil {
+		if _, err := st.LookupSecret(ctx, "cherry"); err != nil {
 			t.Fatalf("Lookup(cherry): unexpected error: %v", err)
 		}
 	})
