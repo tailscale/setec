@@ -28,7 +28,7 @@ type Client struct {
 	DoHTTP func(*http.Request) (*http.Response, error)
 }
 
-func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RESP, error) {
+func do[RESP, REQ any](ctx context.Context, c Client, path string, req REQ) (RESP, error) {
 	var resp RESP
 
 	bs, err := json.Marshal(req)
@@ -86,12 +86,12 @@ func do[RESP, REQ any](ctx context.Context, c *Client, path string, req REQ) (RE
 
 // List fetches a list of secret names and associated metadata (but
 // not the secret values themselves).
-func (c *Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
+func (c Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
 	return do[[]*api.SecretInfo](ctx, c, "/api/list", api.ListRequest{})
 }
 
 // Get fetches a secret value by name.
-func (c *Client) Get(ctx context.Context, name string) (*api.SecretValue, error) {
+func (c Client) Get(ctx context.Context, name string) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
 		Version: api.SecretVersionDefault,
@@ -102,7 +102,7 @@ func (c *Client) Get(ctx context.Context, name string) (*api.SecretValue, error)
 // server is different from oldVersion. If the active version on the server is
 // the same as oldVersion, it reports api.ErrValueNotChanged without returning
 // a secret.
-func (c *Client) GetIfChanged(ctx context.Context, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
+func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:            name,
 		Version:         oldVersion,
@@ -111,7 +111,7 @@ func (c *Client) GetIfChanged(ctx context.Context, name string, oldVersion api.S
 }
 
 // Get fetches a secret value by name and version.
-func (c *Client) GetVersion(ctx context.Context, name string, version api.SecretVersion) (*api.SecretValue, error) {
+func (c Client) GetVersion(ctx context.Context, name string, version api.SecretVersion) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
 		Version: version,
@@ -119,7 +119,7 @@ func (c *Client) GetVersion(ctx context.Context, name string, version api.Secret
 }
 
 // Info fetches metadata for a given secret name.
-func (c *Client) Info(ctx context.Context, name string) (*api.SecretInfo, error) {
+func (c Client) Info(ctx context.Context, name string) (*api.SecretInfo, error) {
 	return do[*api.SecretInfo](ctx, c, "/api/info", api.InfoRequest{
 		Name: name,
 	})
@@ -128,7 +128,7 @@ func (c *Client) Info(ctx context.Context, name string) (*api.SecretInfo, error)
 // Put creates a secret called name, with the given value. If a secret
 // called name already exist, the value is saved as a new inactive
 // version.
-func (c *Client) Put(ctx context.Context, name string, value []byte) (version api.SecretVersion, err error) {
+func (c Client) Put(ctx context.Context, name string, value []byte) (version api.SecretVersion, err error) {
 	return do[api.SecretVersion](ctx, c, "/api/put", api.PutRequest{
 		Name:  name,
 		Value: value,
@@ -136,7 +136,7 @@ func (c *Client) Put(ctx context.Context, name string, value []byte) (version ap
 }
 
 // Activate changes the active version of the secret called name to version.
-func (c *Client) Activate(ctx context.Context, name string, version api.SecretVersion) error {
+func (c Client) Activate(ctx context.Context, name string, version api.SecretVersion) error {
 	_, err := do[struct{}](ctx, c, "/api/activate", api.ActivateRequest{
 		Name:    name,
 		Version: version,
@@ -145,7 +145,7 @@ func (c *Client) Activate(ctx context.Context, name string, version api.SecretVe
 }
 
 // DeleteVersion deletes the specified version of the named secret.
-func (c *Client) DeleteVersion(ctx context.Context, name string, version api.SecretVersion) error {
+func (c Client) DeleteVersion(ctx context.Context, name string, version api.SecretVersion) error {
 	_, err := do[struct{}](ctx, c, "/api/delete-version", api.DeleteVersionRequest{
 		Name:    name,
 		Version: version,
@@ -154,7 +154,7 @@ func (c *Client) DeleteVersion(ctx context.Context, name string, version api.Sec
 }
 
 // Delete deletes all versions of the named secret.
-func (c *Client) Delete(ctx context.Context, name string) error {
+func (c Client) Delete(ctx context.Context, name string) error {
 	_, err := do[struct{}](ctx, c, "/api/delete", api.DeleteRequest{
 		Name: name,
 	})
