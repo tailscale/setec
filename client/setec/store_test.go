@@ -4,6 +4,7 @@
 package setec_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,7 +25,10 @@ func checkSecretValue(t *testing.T, st *setec.Store, name, want string) setec.Se
 	if f == nil {
 		t.Fatalf("Secret %q not found", name)
 	}
-	if got := string(f.Get()); got != want {
+	if got := f.Get(); !bytes.Equal(got, []byte(want)) {
+		t.Fatalf("Secret %q: got %q, want %q", name, got, want)
+	}
+	if got := f.GetString(); got != want {
 		t.Fatalf("Secret %q: got %q, want %q", name, got, want)
 	}
 	return f
@@ -159,7 +163,7 @@ func TestCachedStore(t *testing.T) {
 	// we see it without having to update explicitly.
 	pollTicker.Poll()
 
-	if got, want := string(alpha.Get()), "bazquux"; got != want {
+	if got, want := alpha.GetString(), "bazquux"; got != want {
 		t.Fatalf("Lookup alpha: got %q, want %q", got, want)
 	}
 
@@ -182,7 +186,7 @@ func TestCachedStore(t *testing.T) {
 		}
 		check("counter_poll_initiated", "1")
 		check("counter_poll_errors", "0")
-		check("counter_secret_fetch", "2")
+		check("counter_secret_fetch", "3")
 	})
 }
 

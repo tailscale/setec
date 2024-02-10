@@ -413,11 +413,19 @@ func (s *Store) LookupWatcher(name string) (Watcher, error) {
 // A Secret is a function that fetches the current active value of a secret.
 // The caller should not cache the value returned; the function does not block
 // and will always report a valid (if possibly stale) result.
+//
+// The Secret retains ownership of the bytes returned, but the store will never
+// modify the contents of the secret, so it is safe to share the slice without
+// copying as long as the caller does not modify them.
 type Secret func() []byte
 
 // Get returns the current active value of the secret.  It is a legibility
 // alias for calling the function.
 func (s Secret) Get() []byte { return s() }
+
+// GetString returns a copy of the current active value of the secret as a
+// string.
+func (s Secret) GetString() string { return string(s()) }
 
 // StaticSecret returns a Secret that vends a static string value.
 // This is useful as a placeholder for development, migration, and testing.
