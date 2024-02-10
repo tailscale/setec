@@ -83,7 +83,7 @@ func TestFields(t *testing.T) {
 	}
 
 	// Check that we can apply values.
-	if err := f.Apply(st); err != nil {
+	if err := f.Apply(context.Background(), st); err != nil {
 		t.Errorf("Apply failed; %v", err)
 	}
 
