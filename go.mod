@@ -1,8 +1,6 @@
 module github.com/tailscale/setec
 
-go 1.21.1
-
-toolchain go1.21.6
+go 1.22.0
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.24.1
@@ -18,7 +16,7 @@ require (
 	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a
 	golang.org/x/sync v0.6.0
 	golang.org/x/term v0.16.0
-	tailscale.com v1.1.1-0.20240201195624-ba70cbb930aa
+	tailscale.com v1.1.1-0.20240212200800-c42a4e407a9f
 )
 
 require (
@@ -81,7 +79,7 @@ require (
 	github.com/tailscale/goupnp v1.0.1-0.20210804011211-c64d0f06ea05 // indirect
 	github.com/tailscale/hujson v0.0.0-20221223112325-20486734a56a // indirect
 	github.com/tailscale/netlink v1.1.1-0.20211101221916-cabfb018fe85 // indirect
-	github.com/tailscale/web-client-prebuilt v0.0.0-20240111230031-5ca22df9e6e7 // indirect
+	github.com/tailscale/web-client-prebuilt v0.0.0-20240208184856-443a64766f61 // indirect
 	github.com/tailscale/wireguard-go v0.0.0-20231121184858-cc193a0b3272 // indirect
 	github.com/tcnksm/go-httpstat v0.2.0 // indirect
 	github.com/u-root/uio v0.0.0-20240118234441-a3c409a6018e // indirect
