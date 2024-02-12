@@ -90,7 +90,7 @@ func (c Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
 	return do[[]*api.SecretInfo](ctx, c, "/api/list", api.ListRequest{})
 }
 
-// Get fetches a secret value by name.
+// Get fetches the current active secret value for name.
 func (c Client) Get(ctx context.Context, name string) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
@@ -101,8 +101,12 @@ func (c Client) Get(ctx context.Context, name string) (*api.SecretValue, error) 
 // GetIfChanged fetches a secret value by name, if the active version on the
 // server is different from oldVersion. If the active version on the server is
 // the same as oldVersion, it reports api.ErrValueNotChanged without returning
-// a secret.
+// a secret. As a special case, if oldVersion == 0 then GetIfVersion behaves as
+// Get and retrieves the current active version.
 func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
+	if oldVersion == api.SecretVersionDefault {
+		return c.Get(ctx, name)
+	}
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:            name,
 		Version:         oldVersion,
@@ -110,7 +114,8 @@ func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.Se
 	})
 }
 
-// Get fetches a secret value by name and version.
+// Get fetches a secret value by name and version. If version == 0, GetVersion
+// retrieves the current active version.
 func (c Client) GetVersion(ctx context.Context, name string, version api.SecretVersion) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
