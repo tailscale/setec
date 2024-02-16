@@ -160,7 +160,7 @@ func TestMissingFields(t *testing.T) {
 		t.Fatalf("ParseFields: unexpected error: %v", err)
 	}
 
-	if err := f.Apply(st); err != nil {
+	if err := f.Apply(context.Background(), st); err != nil {
 		t.Errorf("Apply failed: %v", err)
 	}
 	if tf.Z != 12345 {
