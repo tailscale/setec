@@ -352,19 +352,35 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 		ctx, cancel = context.WithTimeout(s.ctx, 5*time.Minute)
 		defer cancel()
 	}
-	sv, err := s.client.Get(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("lookup %q: %w", name, err)
-	}
 
-	s.active.Lock()
-	defer s.active.Unlock()
-	s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
-	if err := s.flushCacheLocked(); err != nil {
-		s.logf("WARNING: error flushing cache: %v", err)
+	// When lookups are enabled, it is possible a bunch of goroutines may race
+	// for the right to grab and cache a given secret, so singleflight the
+	// lookup for each secret under its own marker. The "lookup:" prefix here
+	// ensures we don't collide with the "poll" label used by periodic updates.
+	ch := s.single.DoChan("lookup:"+name, func() (any, error) {
+		sv, err := s.client.Get(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("lookup %q: %w", name, err)
+		}
+
+		s.active.Lock()
+		defer s.active.Unlock()
+		s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
+		if err := s.flushCacheLocked(); err != nil {
+			s.logf("WARNING: error flushing cache: %v", err)
+		}
+		s.logf("[store] added new undeclared secret %q", name)
+		return s.secretLocked(name), nil
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case res := <-ch:
+		if res.Err != nil {
+			return nil, res.Err
+		}
+		return res.Val.(Secret), nil
 	}
-	s.logf("[store] added new undeclared secret %q", name)
-	return s.secretLocked(name), nil
 }
 
 // Watcher returns a watcher for the named secret. It returns a zero Watcher if
