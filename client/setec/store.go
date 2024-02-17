@@ -345,19 +345,19 @@ func (s *Store) LookupSecret(ctx context.Context, name string) (Secret, error) {
 // The caller must not hold the s.active lock; the call to the service is
 // performed outside the lock to avoid stalling other readers.
 func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, error) {
-	// Impose a loose deadline if ctx doesn't already have one, so requests do
-	// not stall forever if the infrastructure is farkakte.
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(s.ctx, 5*time.Minute)
-		defer cancel()
-	}
-
 	// When lookups are enabled, it is possible a bunch of goroutines may race
 	// for the right to grab and cache a given secret, so singleflight the
 	// lookup for each secret under its own marker. The "lookup:" prefix here
 	// ensures we don't collide with the "poll" label used by periodic updates.
-	ch := s.single.DoChan("lookup:"+name, func() (any, error) {
+	v, err, _ := s.single.Do("lookup:"+name, func() (any, error) {
+		// Impose a loose deadline if ctx doesn't already have one, so requests do
+		// not stall forever if the infrastructure is farkakte.
+		if _, ok := ctx.Deadline(); !ok {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(s.ctx, 5*time.Minute)
+			defer cancel()
+		}
+
 		sv, err := s.client.Get(ctx, name)
 		if err != nil {
 			return nil, fmt.Errorf("lookup %q: %w", name, err)
@@ -372,15 +372,10 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 		s.logf("[store] added new undeclared secret %q", name)
 		return s.secretLocked(name), nil
 	})
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case res := <-ch:
-		if res.Err != nil {
-			return nil, res.Err
-		}
-		return res.Val.(Secret), nil
+	if err != nil {
+		return nil, err
 	}
+	return v.(Secret), nil
 }
 
 // Watcher returns a watcher for the named secret. It returns a zero Watcher if
