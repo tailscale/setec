@@ -345,37 +345,48 @@ func (s *Store) LookupSecret(ctx context.Context, name string) (Secret, error) {
 // The caller must not hold the s.active lock; the call to the service is
 // performed outside the lock to avoid stalling other readers.
 func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, error) {
-	// When lookups are enabled, it is possible a bunch of goroutines may race
-	// for the right to grab and cache a given secret, so singleflight the
-	// lookup for each secret under its own marker. The "lookup:" prefix here
-	// ensures we don't collide with the "poll" label used by periodic updates.
-	v, err, _ := s.single.Do("lookup:"+name, func() (any, error) {
-		// Impose a loose deadline if ctx doesn't already have one, so requests do
-		// not stall forever if the infrastructure is farkakte.
-		if _, ok := ctx.Deadline(); !ok {
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(s.ctx, 5*time.Minute)
-			defer cancel()
-		}
+	// When lookups are enabled, multiple goroutines may race for the right to
+	// grab and cache a given secret, so singleflight the lookup for each secret
+	// under its own marker. The "lookup:" prefix here ensures we don't collide
+	// with the "poll" label used by periodic updates.
+	//
+	// Note that the winner of the race on the singleflight may time out early,
+	// in which case we want to retry (up to a safety limit) when we discover
+	// the result was due to a context cancellation other than our own.
+	for ctx.Err() == nil {
+		v, err, _ := s.single.Do("lookup:"+name, func() (any, error) {
+			// If the winning caller's context doesn't already have a deadline,
+			// impose a safety fallback so requests do not stall forever if the
+			// infrastructure is farkakte.
+			dctx := ctx
+			if _, ok := ctx.Deadline(); !ok {
+				var cancel context.CancelFunc
+				dctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+				defer cancel()
+			}
 
-		sv, err := s.client.Get(ctx, name)
-		if err != nil {
-			return nil, fmt.Errorf("lookup %q: %w", name, err)
-		}
+			sv, err := s.client.Get(dctx, name)
+			if err != nil {
+				return nil, fmt.Errorf("lookup %q: %w", name, err)
+			}
 
-		s.active.Lock()
-		defer s.active.Unlock()
-		s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
-		if err := s.flushCacheLocked(); err != nil {
-			s.logf("WARNING: error flushing cache: %v", err)
+			s.active.Lock()
+			defer s.active.Unlock()
+			s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
+			if err := s.flushCacheLocked(); err != nil {
+				s.logf("WARNING: error flushing cache: %v", err)
+			}
+			s.logf("[store] added new undeclared secret %q", name)
+			return s.secretLocked(name), nil
+		})
+		if err == nil {
+			return v.(Secret), nil
+		} else if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			// If this was our context, we'll fall out on the next loop test.
+			return nil, err
 		}
-		s.logf("[store] added new undeclared secret %q", name)
-		return s.secretLocked(name), nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	return v.(Secret), nil
+	return nil, ctx.Err()
 }
 
 // Watcher returns a watcher for the named secret. It returns a zero Watcher if
