@@ -382,9 +382,9 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 		if err == nil {
 			return v.(Secret), nil
 		} else if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			// If this was our context, we'll fall out on the next loop test.
 			return nil, err
 		}
+		// Cancelled or deadline exceeed.  If it was us, we'll fall off the loop.
 	}
 	return nil, ctx.Err()
 }
