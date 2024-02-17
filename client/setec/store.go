@@ -353,7 +353,7 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 	// Note that the winner of the race on the singleflight may time out early,
 	// in which case we want to retry (up to a safety limit) when we discover
 	// the result was due to a context cancellation other than our own.
-	for ctx.Err() == nil {
+	for {
 		v, err, _ := s.single.Do("lookup:"+name, func() (any, error) {
 			// If the winning caller's context doesn't already have a deadline,
 			// impose a safety fallback so requests do not stall forever if the
@@ -381,12 +381,16 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 		})
 		if err == nil {
 			return v.(Secret), nil
-		} else if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
-			return nil, err
+		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			if ctx.Err() == nil {
+				// This wasn't us timing out, try again.
+				continue
+			}
 		}
-		// Cancelled or deadline exceeed.  If it was us, we'll fall off the loop.
+		// Reaching here, either we won the singleflight race and timed out, or
+		// we got a real error from the winner.
+		return nil, err
 	}
-	return nil, ctx.Err()
 }
 
 // Watcher returns a watcher for the named secret. It returns a zero Watcher if
