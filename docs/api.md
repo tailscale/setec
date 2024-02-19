@@ -12,12 +12,31 @@ The peer capability label is `tailscale.com/cap/secrets`.
 Calls to the API must include a header `Sec-X-Tailscale-No-Browsers: setec`.
 This prevents browser scripts from initiating calls to the service.
 
+
 ## HTTP Status
 
 - Invalid request parameters report 400 Invalid request.
 - Access permission errors report 403 Forbidden.
 - Requests for unknown values report 404 Not found.
 - All other errors report 500 Internal server error.
+
+
+## Permissions
+
+The service defines named _actions_ that are subject to access control:
+
+- `get`: Denotes permission to fetch the contents of a secret.                                                                             |
+- `info`: Denotes permission to read the metadata for a secret, including
+  available and active version numbers, but not the secret values
+
+- `put`: Denotes permission to put a new value of a secret.
+
+- `activate`: Denotes permission to set one one of of the available versions of
+  a secret as the active one.
+
+- `delete`: Denotes permission to delete secret versions, either individually
+  or entirely.
+
 
 ## Methods
 
