@@ -29,7 +29,7 @@ The service defines named _actions_ that are subject to access control:
   does not imply `info`, or vice versa.
 
 - `info`: Denotes permission to read the metadata for a secret, including
-  available and active version numbers, but not the secret values
+  available and active version numbers, but not the secret values.
 
 - `put`: Denotes permission to put a new value of a secret.
 
