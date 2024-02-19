@@ -84,13 +84,17 @@ func do[RESP, REQ any](ctx context.Context, c Client, path string, req REQ) (RES
 	return resp, nil
 }
 
-// List fetches a list of secret names and associated metadata (but
-// not the secret values themselves).
+// List fetches a list of secret names and associated metadata for all those
+// secrets on which the caller has "info" access. List does not report the
+// secret values themselves. If the caller does not have "info" access to any
+// secrets, List reports zero values without error.
 func (c Client) List(ctx context.Context) ([]*api.SecretInfo, error) {
 	return do[[]*api.SecretInfo](ctx, c, "/api/list", api.ListRequest{})
 }
 
 // Get fetches the current active secret value for name.
+//
+// Access requirement: "get"
 func (c Client) Get(ctx context.Context, name string) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
@@ -103,6 +107,8 @@ func (c Client) Get(ctx context.Context, name string) (*api.SecretValue, error) 
 // the same as oldVersion, it reports api.ErrValueNotChanged without returning
 // a secret. As a special case, if oldVersion == 0 then GetIfVersion behaves as
 // Get and retrieves the current active version.
+//
+// Access requirement: "get"
 func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
 	if oldVersion == api.SecretVersionDefault {
 		return c.Get(ctx, name)
@@ -116,6 +122,8 @@ func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.Se
 
 // Get fetches a secret value by name and version. If version == 0, GetVersion
 // retrieves the current active version.
+//
+// Access requirement: "get"
 func (c Client) GetVersion(ctx context.Context, name string, version api.SecretVersion) (*api.SecretValue, error) {
 	return do[*api.SecretValue](ctx, c, "/api/get", api.GetRequest{
 		Name:    name,
@@ -124,15 +132,18 @@ func (c Client) GetVersion(ctx context.Context, name string, version api.SecretV
 }
 
 // Info fetches metadata for a given secret name.
+//
+// Access requirement: "info"
 func (c Client) Info(ctx context.Context, name string) (*api.SecretInfo, error) {
 	return do[*api.SecretInfo](ctx, c, "/api/info", api.InfoRequest{
 		Name: name,
 	})
 }
 
-// Put creates a secret called name, with the given value. If a secret
-// called name already exist, the value is saved as a new inactive
-// version.
+// Put creates a secret called name, with the given value. If a secret called
+// name already exist, the value is saved as a new inactive version.
+//
+// Access requirement: "put"
 func (c Client) Put(ctx context.Context, name string, value []byte) (version api.SecretVersion, err error) {
 	return do[api.SecretVersion](ctx, c, "/api/put", api.PutRequest{
 		Name:  name,
@@ -141,6 +152,8 @@ func (c Client) Put(ctx context.Context, name string, value []byte) (version api
 }
 
 // Activate changes the active version of the secret called name to version.
+//
+// Access requirement: "activate"
 func (c Client) Activate(ctx context.Context, name string, version api.SecretVersion) error {
 	_, err := do[struct{}](ctx, c, "/api/activate", api.ActivateRequest{
 		Name:    name,
@@ -150,6 +163,11 @@ func (c Client) Activate(ctx context.Context, name string, version api.SecretVer
 }
 
 // DeleteVersion deletes the specified version of the named secret.
+//
+// Note: DeleteVersion will report an error if the caller attempts to delete
+// the active version, even if they have permission to do so.
+//
+// Access requirement: "delete"
 func (c Client) DeleteVersion(ctx context.Context, name string, version api.SecretVersion) error {
 	_, err := do[struct{}](ctx, c, "/api/delete-version", api.DeleteVersionRequest{
 		Name:    name,
@@ -159,6 +177,11 @@ func (c Client) DeleteVersion(ctx context.Context, name string, version api.Secr
 }
 
 // Delete deletes all versions of the named secret.
+//
+// Note: Delete will delete all versions of the secret, including the active
+// one, if the caller has permission to do so.
+//
+// Access requirement: "delete"
 func (c Client) Delete(ctx context.Context, name string) error {
 	_, err := do[struct{}](ctx, c, "/api/delete", api.DeleteRequest{
 		Name: name,

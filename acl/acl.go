@@ -17,16 +17,31 @@ import (
 type Action string
 
 const (
-	ActionGet      = Action("get")
-	ActionInfo     = Action("info")
-	ActionPut      = Action("put")
+	// ActionGet ("get" in the API) denotes permission to fetch the contents of a secret.
+	//
+	// Note: ActionGet does not imply ActionInfo, or vice versa.
+	ActionGet = Action("get")
+
+	// ActionInfo ("info" in the API) denotes permission to read the metadata
+	// for a secret, including available and active version numbers, but not the
+	// secret values.
+	ActionInfo = Action("info")
+
+	// ActionPut ("put" in the API) denotes permission to put a new value of a
+	// secret.
+	ActionPut = Action("put")
+
+	// ActionActivate ("activate" in the API) denotes permission to set one one
+	// of of the available versions of a secret as the active one.
 	ActionActivate = Action("activate")
-	ActionDelete   = Action("delete")
+
+	// ActionDelete ("delete" in the API) denotes permission to delete secret
+	// versions, either individually or entirely.
+	ActionDelete = Action("delete")
 )
 
-// Secret is a secret name pattern that can optionally contain '*'
-// wildcard characters. The wildcard means "zero or more of any
-// character here."
+// Secret is a secret name pattern that can optionally contain '*' wildcard
+// characters. The wildcard means "zero or more of any character here."
 type Secret string
 
 // Match reports whether the Secret name pattern matches val.
