@@ -25,7 +25,9 @@ This prevents browser scripts from initiating calls to the service.
 
 The service defines named _actions_ that are subject to access control:
 
-- `get`: Denotes permission to fetch the contents of a secret.                                                                             |
+- `get`: Denotes permission to fetch the contents of a secret.  Note that `get`
+  does not imply `info`, or vice versa.
+
 - `info`: Denotes permission to read the metadata for a secret, including
   available and active version numbers, but not the secret values
 

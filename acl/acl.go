@@ -18,6 +18,8 @@ type Action string
 
 const (
 	// ActionGet ("get" in the API) denotes permission to fetch the contents of a secret.
+	//
+	// Note: ActionGet does not imply ActionInfo, or vice versa.
 	ActionGet = Action("get")
 
 	// ActionInfo ("info" in the API) denotes permission to read the metadata
