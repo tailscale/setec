@@ -146,7 +146,7 @@ type fieldInfo struct {
 	fieldName  string             // name in the type (for diagnostics)
 	secretName string             // name in the field tag (without prefix)
 	value      reflect.Value      // pointer to field
-	setText    func([]byte) error // if non-nil, call to unmarshal the value
+	unmarshal  func([]byte) error // if non-nil, call to unmarshal the value
 	isJSON     bool               // if true, secret must be JSON encoded
 	vtype      reflect.Type       // type of field pointed to by value
 }
@@ -178,8 +178,8 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	if err != nil {
 		return err
 	}
-	if f.setText != nil {
-		return f.setText(v.Get())
+	if f.unmarshal != nil {
+		return f.unmarshal(v.Get())
 	}
 	switch f.vtype {
 	case bytesType:
@@ -232,7 +232,7 @@ func parseFields(obj any) ([]fieldInfo, error) {
 		}
 		if !fi.isJSON {
 			if u := checkUnmarshal(fi.value); u != nil {
-				fi.setText = u
+				fi.unmarshal = u
 			} else {
 				switch ft.Type {
 				case bytesType, stringType, secretType, watcherType:
