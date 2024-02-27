@@ -4,7 +4,9 @@
 package setec_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -16,9 +18,22 @@ import (
 	"tailscale.com/types/logger"
 )
 
+// testObj is a value that can be unmarshaled from JSON.
 type testObj struct {
 	X string `json:"x"`
 	Y bool   `json:"y"`
+}
+
+// binValue is a value that can be unmarshaled from binary.
+type binValue [2]string
+
+func (t *binValue) UnmarshalBinary(text []byte) error {
+	head, tail, ok := bytes.Cut(text, []byte(":"))
+	if !ok {
+		return errors.New("missing :")
+	}
+	t[0], t[1] = string(head), string(tail)
+	return nil
 }
 
 func TestFields(t *testing.T) {
@@ -28,6 +43,10 @@ func TestFields(t *testing.T) {
 		"pear":   "2",
 		"plum":   "3",
 		"cherry": "4",
+
+		// A text-encoded value compatible with binValue.
+		"bin-value":     "kumquat:quince",
+		"bin-value-ptr": "peach:durian",
 
 		// A JSON-encoded value compatible with testObj.
 		"object-value": `{"x":"hello","y":true}`,
@@ -47,13 +66,15 @@ func TestFields(t *testing.T) {
 	// Verify that if we parse secrets with a store enabled, we correctly plumb
 	// the values from the service into the tagged fields.
 	type testTarget struct {
-		A string        `setec:"apple"`
-		P []byte        `setec:"pear"`
-		L setec.Secret  `setec:"plum"`
-		C setec.Watcher `setec:"cherry"`
-		X string        // untagged, not affected
-		J testObj       `setec:"object-value,json"`
-		Z int           `setec:"int-value,json"`
+		A  string        `setec:"apple"`
+		B  binValue      `setec:"bin-value"`
+		BP *binValue     `setec:"bin-value-ptr"`
+		P  []byte        `setec:"pear"`
+		L  setec.Secret  `setec:"plum"`
+		C  setec.Watcher `setec:"cherry"`
+		X  string        // untagged, not affected
+		J  testObj       `setec:"object-value,json"`
+		Z  int           `setec:"int-value,json"`
 	}
 	var obj testTarget
 
@@ -76,7 +97,8 @@ func TestFields(t *testing.T) {
 
 	// Check that secret names respect prefixing.
 	if diff := cmp.Diff(f.Secrets(), []string{
-		"test/apple", "test/pear", "test/plum", "test/cherry",
+		"test/apple", "test/bin-value", "test/bin-value-ptr",
+		"test/pear", "test/plum", "test/cherry",
 		"test/object-value", "test/int-value",
 	}); diff != "" {
 		t.Errorf("Prefixed secret names (-got, +want):\n%s", diff)
@@ -90,10 +112,12 @@ func TestFields(t *testing.T) {
 	// Don't try to compare complex plumbing; see below.
 	opt := cmpopts.IgnoreFields(testTarget{}, "L", "C")
 	if diff := cmp.Diff(obj, testTarget{
-		A: secrets["apple"],
-		P: []byte(secrets["pear"]),
-		J: testObj{X: "hello", Y: true},
-		Z: 12345,
+		A:  secrets["apple"],
+		B:  binValue{"kumquat", "quince"},
+		BP: &binValue{"peach", "durian"},
+		P:  []byte(secrets["pear"]),
+		J:  testObj{X: "hello", Y: true},
+		Z:  12345,
 	}, opt); diff != "" {
 		t.Errorf("Populated value (-got, +want):\n%s", diff)
 	}
