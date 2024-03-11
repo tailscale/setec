@@ -31,22 +31,26 @@ type FileClient struct {
 //	      "secret": {"Value": "b3BlbiBzZXNhbWU=", "Version": 1}
 //	   },
 //	   "secret-name-2": {
-//	      "secret": {"Value": "eHl6enk=", "Version": 5}
+//	      "secret": {"TextValue": "xyzzy", "Version": 5}
 //	   },
 //	   ...
 //	}
 //
-// The secret values are encoded as base64 strings. A cache file written out by
-// a FileCache can also be used as input. Unlike a cache, however, a FileClient
-// only reads the file once, and subsequent modifications of the file are not
-// observed.
+// The secret values are encoded either as base64 strings ("Value") or as plain
+// text ("TextValue"). A cache file written out by a FileCache can also be used
+// as input. Unlike a cache, however, a FileClient only reads the file once,
+// and subsequent modifications of the file are not observed.
 func NewFileClient(path string) (*FileClient, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 	var input map[string]struct {
-		Secret *api.SecretValue `json:"secret"`
+		Secret *struct {
+			Value     []byte
+			TextValue string
+			Version   api.SecretVersion
+		} `json:"secret"`
 	}
 	if err := json.Unmarshal(data, &input); err != nil {
 		return nil, fmt.Errorf("decode secrets file: %w", err)
@@ -56,7 +60,15 @@ func NewFileClient(path string) (*FileClient, error) {
 		if name == "" || val.Secret == nil {
 			continue // no secret value; skip
 		}
-		db[name] = val.Secret
+		sec := val.Secret
+		if sec.Version <= 0 || (sec.TextValue == "" && len(sec.Value) == 0) {
+			continue // invalid version or no value
+		}
+		if sec.TextValue != "" {
+			db[name] = &api.SecretValue{Value: []byte(sec.TextValue), Version: sec.Version}
+		} else {
+			db[name] = &api.SecretValue{Value: sec.Value, Version: sec.Version}
+		}
 	}
 	return &FileClient{path: path, db: db}, nil
 }

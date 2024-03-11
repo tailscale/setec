@@ -27,7 +27,10 @@ const testSecrets = `{
   "little/tasty/cherry": {
      "secret": {"Version": 3, "Value": "cGll"}
   },
-  "": {"secret": {"Version": 10, "Value": "dW5zZWVu"}}
+  "": {"secret": {"Version": 10, "Value": "dW5zZWVu"}},
+  "durian": {
+     "secret": {"Version": 0}
+  }
 }`
 
 func TestFileStore(t *testing.T) {
@@ -54,6 +57,9 @@ func TestFileStore(t *testing.T) {
 		// Get a value we don't expect.
 		if v, err := fc.Get(ctx, "pear"); !errors.Is(err, api.ErrNotFound) {
 			t.Errorf("Get pear: got (%v, %v), want %v", v, err, api.ErrNotFound)
+		}
+		if v, err := fc.Get(ctx, "durian"); !errors.Is(err, api.ErrNotFound) {
+			t.Errorf("Get durian: got (%v, %v), want %v", v, err, api.ErrNotFound)
 		}
 
 		// Get a value that has not changed.
