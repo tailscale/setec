@@ -23,7 +23,7 @@ import (
 
 // Store is a store that provides named secrets.
 type Store struct {
-	client      Client // API client
+	client      StoreClient // API client
 	logf        logger.Logf
 	cache       Cache
 	allowLookup bool
@@ -72,7 +72,7 @@ func (s *Store) Metrics() *expvar.Map {
 type StoreConfig struct {
 	// Client is the API client used to fetch secrets from the service.
 	// The service URL must be non-empty.
-	Client Client
+	Client StoreClient
 
 	// Secrets are the names of secrets this Store should retrieve.
 	//
@@ -108,7 +108,10 @@ type StoreConfig struct {
 	Cache Cache
 
 	// PollInterval is the interval at which the store will poll the service for
-	// updated secret values. If zero or negative, a default value is used.
+	// updated secret values. If zero, a default value is used. If negative, the
+	// store does not automatically poll and the caller must explicitly call the
+	// Refresh method to effect an update.
+	//
 	// This field is ignored if PollTicker is set.
 	PollInterval time.Duration
 
@@ -138,7 +141,7 @@ func (c StoreConfig) logger() logger.Logf {
 }
 
 func (c StoreConfig) pollInterval() time.Duration {
-	if c.PollInterval <= 0 {
+	if c.PollInterval == 0 {
 		return 1 * time.Hour
 	}
 	return c.PollInterval
@@ -171,8 +174,8 @@ func (c StoreConfig) timeNow() func() time.Time {
 // values are accepted even if stale, as long as there is a value for each of
 // the secrets in cfg.
 func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
-	if cfg.Client.Server == "" {
-		return nil, errors.New("no service URL is set")
+	if cfg.Client == nil {
+		return nil, errors.New("no service client is set")
 	}
 
 	secrets, structs, err := cfg.secretNames()
@@ -254,7 +257,12 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	done := make(chan struct{})
 	s.done = done
 
-	go s.run(pctx, cfg.pollInterval(), done)
+	if pi := cfg.pollInterval(); pi > 0 {
+		go s.run(pctx, pi, done)
+	} else {
+		close(done) // unblock shutdown, which will wait for this
+		s.logf("[store] automatic polling for new values is disabled")
+	}
 
 	return s, nil
 }
