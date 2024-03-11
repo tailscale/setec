@@ -22,7 +22,7 @@ const testSecrets = `{
      "unrelated": true
   },
   "plum": {
-     "secret": {"Version": 2, "Value": "dGFydGxldA=="}
+     "secret": {"Version": 2, "TextValue": "tartlet"}
   },
   "little/tasty/cherry": {
      "secret": {"Version": 3, "Value": "cGll"}
