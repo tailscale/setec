@@ -437,7 +437,101 @@ the program's secret values to local storage, which means they can be read by
 program can start up immediately using cached data, even if the secrets server
 is not reachable when it launches.
 
-## Testing
+## Self-Contained Operation
+
+In some cases, you may need to run a program entirely without access to a
+secrets server. For example, in standalone testing and bootstrapping it may be
+impractical to set up a secrets service, or you may want to deploy the same
+program across different environments where a secrets service may or may not be
+present.
+
+To support these cases, the Go [`setec`][setecpkg] package provides a
+[`FileClient`][fileclient] type that can be plugged into a
+[`setec.Store`][setecstore].  Unlike the normal [`setec.Client`][setecclient],
+a `FileClient` does not use the network at all, but vends secrets read from a
+plaintext JSON file on the local filesystem.
+
+To use this, construct a `Store` using a `FileClient` instead:
+
+```go
+fc, err := setec.NewFileClient("/data/secrets.json")
+if err != nil {
+   return fmt.Errorf("creating file client: %w", err)
+}
+st, err := setec.NewStore(ctx, setec.StoreConfig{
+   Client:  fc,
+   Secrets: []string{"svc/secret1", "svc/secret2"},
+})
+```
+
+As input, the `FileClient` expects a file containing a JSON message like:
+
+```json
+{
+   "svc/secret1": {
+      "secret": {"Version": 1, "Value": "dGhlIGtub3dsZWRnZSBpcyBmb3JiaWRkZW4="}
+   },
+   "svc/secret2": {
+      "secret": {"Version": 5, "TextValue": "eat your vegetables"}
+   }
+}
+```
+
+The object keys are the secret names, and the values have the structure shown.
+Binary secret values are base64 encoded as `"Value"`, or if you are constructing
+a secrets file by hand you may include plain text secrets as `"TextValue"`
+instead.
+
+A program that may be used in multiple environments can choose which client to
+use at startup, and otherwise the store will work the same:
+
+```go
+var client setec.StoreClient
+if *secretsAddr != "" {
+   client = setec.Client{Server: *secretsAddr}
+} else if fc, err := setec.NewFileClient(*localSecrets); err != nil {
+   log.Fatalf("Open file client: %v", err)
+} else {
+   client = fc
+}
+
+st, err := setec.NewStore(ctx, setec.StoreConfig{
+   Client: client,
+   // ... other options as usual
+})
+```
+
+### FileClient and Caching
+
+Although the two are related, a `FileClient` differs from the cache mechanism
+described in the previous section.  With a cache enabled, a store loads secrets
+from the cache file at startup, but otherwise communicates with a secrets
+service in the usual way.
+
+With a `FileClient`, however, the store does not access the network at all: It
+reads the specified file once at startup, and only serves those exact secret
+values.
+
+The two mechanisms are intended to be complementary. For example, you could
+bootstrap a new deployment using the following steps:
+
+- Create a secrets file seeded with the initial secrets your program needs.
+
+- Start up a store with a `FileClient` that uses your seed file. This lets you
+  get your program working even if your secrets server is not yet set up.
+
+- When you are ready to switch to a secrets server, you can enable a cache, and
+  the store will prime the cache with the secrets from your seed file.
+
+- Then, when you switch from a `FileClient` to a regular `Client`, you will
+  have an already-primed cache available (which can be helpful as you are
+  working out the inevitable quirks of a new service configuration).
+
+The opposite is also true: By design, the format of the cache files can also be
+used directly as the input to a `FileClient` if you need to spin up a new
+instance of an existing server somewhere else.
+
+## Unit Testing
 
 For programs written in Go, the [`setectest`][setectest] package provides
 in-memory implementations of the setec server and its database for use in
@@ -478,7 +572,9 @@ if err != nil {
 <!-- references -->
 [httptest]: https://godoc.org/net/http/httptest
 [seteccli]: https://github.com/tailscale/setec/tree/main/cmd/setec
+[setecpkg]: https://godoc.org/github.com/tailscale/setec/client/setec
 [setecclient]: https://godoc.org/github.com/tailscale/setec/client/setec#Client
+[fileclient]: https://godoc.org/github.com/tailscale/setec/client/setec#FileClient
 [setecstore]: https://godoc.org/github.com/tailscale/setec/client/setec#Store
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
 [setecupdater]: https://godoc.org/github.com/tailscale/setec/client/setec#Updater
