@@ -672,6 +672,11 @@ func (s *Store) initializeActive(ctx context.Context) error {
 	const baseRetryInterval = 1 * time.Millisecond
 	retryWait := baseRetryInterval
 
+	// As a special case, if the client is specifically a FileClient, we know
+	// any secrets that are missing at startup will never become available.
+	// In that case, report an error back to the caller so startup can fail.
+	_, waitingIsPointless := s.client.(*FileClient)
+
 	for {
 		var missing int
 		for name, cs := range s.active.m {
@@ -698,6 +703,10 @@ func (s *Store) initializeActive(ctx context.Context) error {
 		}
 		if missing == 0 {
 			return nil // succeeded for all values
+		}
+
+		if waitingIsPointless {
+			return fmt.Errorf("missing %d unavailable secrets", missing)
 		}
 
 		// Otherwise, wait a bit and try again, with gentle backoff.

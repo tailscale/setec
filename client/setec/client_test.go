@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tailscale/setec/client/setec"
@@ -89,5 +90,20 @@ func TestFileStore(t *testing.T) {
 		checkSecretValue(t, st, "big/bad/apple", "sauce")
 		checkSecretValue(t, st, "plum", "tartlet")
 		checkSecretValue(t, st, "little/tasty/cherry", "pie")
+	})
+
+	// Verify that a store using the FileClient gives up at startup if secrets
+	// are missing, instead of blocking in a retry loop.
+	t.Run("Missing", func(t *testing.T) {
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:  fc,
+			Secrets: []string{"big/bad/apple", "pear", "red/cabbage"},
+		})
+		const want = "2 unavailable secrets"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("NewStore: got (%v, %v), want error %q", st, err, want)
+		} else {
+			t.Logf("Got expected error: %v", err)
+		}
 	})
 }
