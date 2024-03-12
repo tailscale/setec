@@ -485,7 +485,7 @@ As input, the `FileClient` expects a file containing a JSON message like:
 
 The object keys are the secret names, and the values have the structure shown.
 Binary secret values are base64 encoded as `"Value"`, or if you are constructing
-a secrets file by hand you may also include plain text secrets as `"TextValue"`
+a secrets file by hand you may include plain text secrets as `"TextValue"`
 instead. The `FileClient` can also accept as input a cache file as described
 above.
 
