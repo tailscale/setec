@@ -437,7 +437,78 @@ the program's secret values to local storage, which means they can be read by
 program can start up immediately using cached data, even if the secrets server
 is not reachable when it launches.
 
-## Testing
+## Self-Contained Operation
+
+In some cases, you may need to run a program entirely without access to a
+secrets server. For example, in standalone testing and bootstrapping it may be
+impractical to set up a secrets service, or you may want to deploy the same
+program across different environments where a secrets service may or may not be
+present.
+
+To support these cases, the Go [`setec`][setecpkg] package provides a
+[`FileClient`][fileclient] type that can be plugged into a
+[`setec.Store`][setecstore].  Unlike the normal [`setec.Client`][setecclient],
+a `FileClient` does not use the network at all, but vends secrets read from a
+plaintext JSON file on the local filesystem.
+
+This differs from the cache described in the previous section: With a cache,
+the program loads secrets from a file at startup, but otherwise communicates
+with a secrets service over the network. With a `FileClient`, however, the
+store never uses the network at all: It reads the specified file once at
+startup, and only serves those exact secret values.
+
+To use this, construct a `Store` using a `FileClient` instead:
+
+```go
+fc, err := setec.NewFileClient("/data/secrets.json")
+if err != nil {
+   return fmt.Errorf("creating file client: %w", err)
+}
+st, err := setec.NewStore(ctx, setec.StoreConfig{
+   Client:  fc,
+   Secrets: []string{"svc/secret1", "svc/secret2"},
+})
+```
+
+As input, the `FileClient` expects a file containing a JSON message like:
+
+```json
+{
+   "svc/secret1": {
+      "secret": {"Version": 1, "Value": "dGhlIGtub3dsZWRnZSBpcyBmb3JiaWRkZW4="}
+   },
+   "svc/secret2": {
+      "secret": {"Version": 5, "TextValue": "eat your vegetables"}
+   }
+}
+```
+
+The object keys are the secret names, and the values have the structure shown.
+Binary secret values are base64 encoded as `"Value"`, orif you are constructing
+a secrets file by hand you may also include plain text secrets as `"TextValue"`
+instead. The `FileClient` can also accept as input a cache file as described
+above.
+
+A program that may be used in multiple environments can choose which client to
+use at startup, and otherwise the store will work the same:
+
+```go
+var client setec.StoreClient
+if *secretsAddr != "" {
+   client = setec.Client{Server: *secretsAddr}
+} else if fc, err := setec.NewFileClient(*localSecrets); err != nil {
+   log.Fatalf("Open file client: %v", err)
+} else {
+   client = fc
+}
+
+st, err := setec.NewStore(ctx, setec.StoreConfig{
+   Client: client,
+   // ... other options as usual
+})
+```
+
+## Unit Testing
 
 For programs written in Go, the [`setectest`][setectest] package provides
 in-memory implementations of the setec server and its database for use in
@@ -478,7 +549,9 @@ if err != nil {
 <!-- references -->
 [httptest]: https://godoc.org/net/http/httptest
 [seteccli]: https://github.com/tailscale/setec/tree/main/cmd/setec
+[setecpkg]: https://godoc.org/github.com/tailscale/setec/client/setec
 [setecclient]: https://godoc.org/github.com/tailscale/setec/client/setec#Client
+[fileclient]: https://godoc.org/github.com/tailscale/setec/client/setec#FileClient
 [setecstore]: https://godoc.org/github.com/tailscale/setec/client/setec#Store
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
 [setecupdater]: https://godoc.org/github.com/tailscale/setec/client/setec#Updater
