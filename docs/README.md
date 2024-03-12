@@ -451,12 +451,6 @@ To support these cases, the Go [`setec`][setecpkg] package provides a
 a `FileClient` does not use the network at all, but vends secrets read from a
 plaintext JSON file on the local filesystem.
 
-This differs from the cache described in the previous section: With a cache,
-the program loads secrets from a file at startup, but otherwise communicates
-with a secrets service over the network. With a `FileClient`, however, the
-store never uses the network at all: It reads the specified file once at
-startup, and only serves those exact secret values.
-
 To use this, construct a `Store` using a `FileClient` instead:
 
 ```go
@@ -486,8 +480,7 @@ As input, the `FileClient` expects a file containing a JSON message like:
 The object keys are the secret names, and the values have the structure shown.
 Binary secret values are base64 encoded as `"Value"`, or if you are constructing
 a secrets file by hand you may include plain text secrets as `"TextValue"`
-instead. The `FileClient` can also accept as input a cache file as described
-above.
+instead.
 
 A program that may be used in multiple environments can choose which client to
 use at startup, and otherwise the store will work the same:
@@ -507,6 +500,36 @@ st, err := setec.NewStore(ctx, setec.StoreConfig{
    // ... other options as usual
 })
 ```
+
+### FileClient and Caching
+
+Although the two are related, a `FileClient` differs from the cache mechanism
+described in the previous section.  With a cache enabled, a store loads secrets
+from the cache file at startup, but otherwise communicates with a secrets
+service in the usual way.
+
+With a `FileClient`, however, the store does not access the network at all: It
+reads the specified file once at startup, and only serves those exact secret
+values.
+
+The two mechanisms are intended to be complementary. For example, you could
+bootstrap a new deployment using the following steps:
+
+- Create a secrets file seeded with the initial secrets your program needs.
+
+- Start up a store with a `FileClient` that uses your seed file. This lets you
+  get your program working even if your secrets server is not yet set up.
+
+- When you are ready to switch to a secrets server, you can enable a cache, and
+  the store will prime the cache with the secrets from your seed file.
+
+- Then, when you switch from a `FileClient` to a regular `Client`, you will
+  have an already-primed cache available (which can be helpful as you are
+  working out the inevitable quirks of a new service configuration).
+
+The opposite is also true: By design, the format of the cache files can also be
+used directly as the input to a `FileClient` if you need to spin up a new
+instance of an existing server somewhere else.
 
 ## Unit Testing
 
