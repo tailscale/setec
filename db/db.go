@@ -183,6 +183,47 @@ func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
 	return db.kv.get(name)
 }
 
+// GetAllFiltered returns all versions of a secret and the active version number.
+func (db *DB) GetAllFiltered(caller Caller, name string, skip []api.SecretVersion) (*Filtered, error) {
+	// We will not log an access unless we are returning at least one unfiltered
+	// secret value. However, we still want a log if authorization fails.
+	if !caller.Permissions.Allow(acl.ActionGet, name) {
+		return nil, db.checkAndLog(caller, acl.ActionGet, name, 0)
+	}
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	active, all, err := db.kv.getAll(name)
+	if err != nil {
+		return nil, err
+	}
+	out := &Filtered{
+		Active:   active,
+		Versions: make([]api.SecretVersion, len(all)),
+	}
+	for i, sv := range all {
+		out.Versions[i] = sv.Version
+		if !slices.Contains(skip, sv.Version) {
+			out.Values = append(out.Values, sv)
+		}
+	}
+
+	if len(out.Values) != 0 {
+		// We got unfiltered secret values, log an access. We already know it's
+		// authorized from the original check.
+		if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// Filtered is the result of a successful GetAllFiltered call.
+type Filtered struct {
+	Active   api.SecretVersion   // the active version of the secret
+	Versions []api.SecretVersion // all known versions of the secret
+	Values   []*api.SecretValue  // all non-filtered values of the secret
+}
+
 // GetConditional returns a secret's active value if it is different from oldVersion.
 // If the active version is the same as oldVersion, it reports api.ErrValueNotChanged.
 func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
