@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/creachadair/mds/mtest"
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/setectest"
 	"tailscale.com/types/logger"
@@ -97,10 +98,9 @@ func TestStore(t *testing.T) {
 		// We should be able to get a secret we requested.
 		checkSecretValue(t, st, "alpha", "ok")
 
-		// We should not be able to get a secret we didn't request.
-		if f := st.Secret("nonesuch"); f != nil {
-			t.Errorf("Lookup nonesuch: got %v, want nil", f)
-		}
+		// With lookups disabled, an undeclared secret panics.
+		mtest.MustPanicf(t, func() { st.Secret("nonesuch") },
+			"Expected panic for an unknown secret")
 	})
 
 	t.Run("NewStore_noLookup", func(t *testing.T) {
@@ -116,7 +116,7 @@ func TestStore(t *testing.T) {
 			t.Errorf("Lookup(bravo): got %q, want error", s.Get())
 		}
 		if w, err := st.LookupWatcher(ctx, "bravo"); err == nil {
-			t.Errorf("Lookup(brav0: got %q, want error", w.Get())
+			t.Errorf("Lookup(bravo): got %q, want error", w.Get())
 		}
 	})
 }
@@ -314,10 +314,17 @@ func TestWatcher(t *testing.T) {
 	}
 	defer st.Close()
 
+	// With lookups disabled, an unknown watcher panics.
+	mtest.MustPanicf(t, func() { st.Watcher("nonesuch") },
+		"Expected panic for an unknown watcher")
+
 	// Observe the initial value of the secret.
 	w := st.Watcher("green")
 	if got, want := string(w.Get()), "eggs and ham"; got != want {
 		t.Errorf("Initial value: got %q, want %q", got, want)
+	}
+	if !w.IsValid() {
+		t.Error("Watcher should be valid, but is not")
 	}
 
 	// The secret gets updated...
@@ -458,6 +465,14 @@ func TestLookup(t *testing.T) {
 		t.Errorf("Lookup(orange): got %q, want error", s.Get())
 	} else {
 		t.Logf("Lookup(orange) correctly failed: %v", err)
+	}
+
+	// With lookup enabled, unknown secrets report nil.
+	if f := st.Secret("nonesuch"); f != nil {
+		t.Errorf("Lookup(nonesuch): got %v, want nil", f)
+	}
+	if w := st.Watcher("nonesuch"); w.IsValid() {
+		t.Errorf("Watcher(nonesuch): got %v, want invalid", w)
 	}
 }
 
