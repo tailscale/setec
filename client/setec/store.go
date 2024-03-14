@@ -303,9 +303,21 @@ func (s *Store) Refresh(ctx context.Context) error {
 	}
 }
 
-// Secret returns a fetcher for the named secret. It returns nil if name does
-// not correspond to one of the secrets known by s.
+// Secret returns a fetcher for the named secret.
+//
+// If s has lookups enabled, Secret returns nil for an unknown name.
+// Otherwise, Secret panics for an unknown name.
 func (s *Store) Secret(name string) Secret {
+	sec := s.secretOrNil(name)
+	if sec == nil && !s.allowLookup {
+		panic(fmt.Sprintf("secret %q not found with lookup disabled", name))
+	}
+	return sec
+}
+
+// secretOrNil returns the fetcher for the named secret, or nil of the name is
+// not known by s.
+func (s *Store) secretOrNil(name string) Secret {
 	s.active.Lock()
 	defer s.active.Unlock()
 	return s.secretLocked(name)
@@ -340,7 +352,8 @@ func (s *Store) secretLocked(name string) Secret {
 // the collection or reports an error.  LookupSecret does not automatically
 // retry in case of errors.
 func (s *Store) LookupSecret(ctx context.Context, name string) (Secret, error) {
-	if f := s.Secret(name); f != nil {
+	f := s.secretOrNil(name)
+	if f != nil {
 		return f, nil
 	} else if !s.allowLookup {
 		return nil, errors.New("lookup is not enabled")
@@ -401,14 +414,19 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 	}
 }
 
-// Watcher returns a watcher for the named secret. It returns a zero Watcher if
-// name does not correspond to one of the secrets known by s.
+// Watcher returns a watcher for the named secret.
+//
+// If s has lookups enabled, Watcher returns a zero Watcher for an unknown name.
+// Otherwise, Watcher panics for an unknown name.
 func (s *Store) Watcher(name string) Watcher {
 	s.active.Lock()
 	defer s.active.Unlock()
 	secret := s.secretLocked(name)
 	if secret == nil {
-		return Watcher{}
+		if s.allowLookup {
+			return Watcher{}
+		}
+		panic(fmt.Sprintf("secret %q not found with lookup disabled", name))
 	}
 	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
 	s.active.w[name] = append(s.active.w[name], w)
@@ -762,6 +780,9 @@ func (w Watcher) notify() {
 	default:
 	}
 }
+
+// IsValid reports whether w is valid, meaning that it has a secret available.
+func (w Watcher) IsValid() bool { return w.secret != nil }
 
 // NewUpdater creates a new Updater that tracks updates to a value based on new
 // secret versions delivered to w.  The newValue function returns a new value
