@@ -310,7 +310,7 @@ func (s *Store) Refresh(ctx context.Context) error {
 func (s *Store) Secret(name string) Secret {
 	sec := s.secretOrNil(name)
 	if sec == nil && !s.allowLookup {
-		panic(fmt.Sprintf("secret %q not found with lookup disabled", name))
+		panic(fmt.Sprintf("secret %q not found in StoreConfig with lookup disabled", name))
 	}
 	return sec
 }
@@ -426,7 +426,7 @@ func (s *Store) Watcher(name string) Watcher {
 		if s.allowLookup {
 			return Watcher{}
 		}
-		panic(fmt.Sprintf("secret %q not found with lookup disabled", name))
+		panic(fmt.Sprintf("secret %q not found in StoreConfig with lookup disabled", name))
 	}
 	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
 	s.active.w[name] = append(s.active.w[name], w)
