@@ -635,6 +635,7 @@ func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
 		// This is a new value for an unexpired secret.
 		// Note that new values do not update access times.
 		s.active.m[name].Secret = sv
+		s.logf("[store] update to version %d for secret %q", sv.Version, name)
 
 		// Wake up any watchers pending on new values for this secret.
 		for _, w := range s.active.w[name] {
