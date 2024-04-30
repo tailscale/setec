@@ -101,9 +101,11 @@ With --from-file, the new value is read from the specified file; otherwise if
 stdin is connected to a pipe, its contents are fully read to obtain the new
 value. Otherwise, the user is prompted for a new value and confirmation.
 
-By default, leading and trailing whitespace is trimmed from plain text values.
-Use --verbatim to suppress this behaviour for values where whitespace matters,
-such as SSH keys.`,
+If the provided value is plain UTF-8 text with leading or trailing whitespace,
+you must specify what to do with the whitespace.  Use --verbatim to keep it, or
+--trim-space to remove it. If you do not specify either, an error is reported.
+If you specify both, --verbatim takes precedence.  Use --verbatim for values
+where whitespace matters, such as PEM-formatted certificates and SSH keys.`,
 
 				SetFlags: command.Flags(flax.MustBind, &putArgs),
 				Run:      command.Adapt(runPut),
@@ -367,9 +369,10 @@ func runGet(env *command.Env, name string) error {
 }
 
 var putArgs struct {
-	File     string `flag:"from-file,Read secret value from this file instead of stdin"`
-	EmptyOK  bool   `flag:"empty-ok,Allow an empty secret value"`
-	Verbatim bool   `flag:"verbatim,Do not trim whitespace from plain text values"`
+	File      string `flag:"from-file,Read secret value from this file instead of stdin"`
+	EmptyOK   bool   `flag:"empty-ok,Allow an empty secret value"`
+	Verbatim  bool   `flag:"verbatim,Do not trim whitespace from plain text values"`
+	TrimSpace bool   `flag:"trim-space,Trim whitespace from plain text values"`
 }
 
 func runPut(env *command.Env, name string) error {
@@ -386,13 +389,11 @@ func runPut(env *command.Env, name string) error {
 		if err != nil {
 			return err
 		}
-		// If the value we read is all valid UTF-8 and the user has not asked us
-		// to do otherwise, trim leading and trailing whitespace.  For non-text
-		// inputs we shouldn't do that.
-		if utf8.Valid(value) && !putArgs.Verbatim {
-			value = bytes.TrimSpace(value)
-		}
-		if len(value) == 0 && !putArgs.EmptyOK {
+
+		value, err = checkPutText(value)
+		if err != nil {
+			return err
+		} else if len(value) == 0 && !putArgs.EmptyOK {
 			return errors.New("empty secret value")
 		}
 	} else if term.IsTerminal(int(os.Stdin.Fd())) {
@@ -424,6 +425,11 @@ func runPut(env *command.Env, name string) error {
 		value, err = io.ReadAll(os.Stdin)
 		if err != nil {
 			return fmt.Errorf("read from stdin: %w", err)
+		}
+
+		value, err = checkPutText(value)
+		if err != nil {
+			return err
 		} else if len(value) == 0 && !putArgs.EmptyOK {
 			return errors.New("empty secret value")
 		}
@@ -526,4 +532,31 @@ func checkConfirmation(req, token string) error {
 
 func newTabWriter(w io.Writer) *tabwriter.Writer {
 	return tabwriter.NewWriter(w, 0, 4, 1, ' ', 0)
+}
+
+// checkPutText checks whether value is plain UTF-8 text. If value is not
+// UTF-8, or if it has no leading or trailing whitespace, it returns (value,
+// nil).
+//
+// Otherwise, the value is UTF-8 text with leading or trailing whitespace.
+//
+// If --verbatim is set, it returns (value, nil), including the spaces.
+// If --trim-space is set, it returns (trimmed, nil), omitting the spaces.
+// If neither is set, it reports an error.
+func checkPutText(value []byte) ([]byte, error) {
+	if !utf8.Valid(value) {
+		return value, nil // binary value, always handle verbatim
+	}
+	trimmed := bytes.TrimSpace(value)
+	if len(trimmed) == len(value) {
+		return value, nil // no extra whitespace, leave it alone
+	} else if putArgs.Verbatim {
+		return value, nil // user wants value verbatim, leave it alone
+	} else if putArgs.TrimSpace {
+		return trimmed, nil // user wants value trimmed
+	}
+	// Reaching here, the value is text with extra space, but the user did not
+	// specify its disposition. Report an error.
+	return nil, errors.New("text value has surrounding whitespace, " +
+		"specify --verbatim to keep the space or --trim-space to remove it")
 }
