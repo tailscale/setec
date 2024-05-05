@@ -11,6 +11,7 @@
    - [Bootstrapping and Availability](#bootstrapping-and-availability)
 - [Testing](#testing)
 - [API documentation](api.md)
+- [Running a setec server](server.md)
 
 ## Background
 
