@@ -441,6 +441,9 @@ func runPut(env *command.Env, name string) error {
 		return fmt.Errorf("failed to write secret: %w", err)
 	}
 	fmt.Printf("Secret saved as %q, version %d\n", name, ver)
+	if ver > 1 {
+		fmt.Printf("Be aware the default version of the secret is not automatically incremented. To make this version the default run setec activate %s %d\n", name, ver)
+	}
 	return nil
 }
 
