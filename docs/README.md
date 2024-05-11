@@ -3,7 +3,11 @@
 ## Table of Contents
 
 - [Background](#background)
-- [Basic usage](#basic-usage)
+- [API Overview](#api-overview)
+   - [Basic Operations](#basic-operations)
+   - [Current Active Versions](#current-active-versions)
+   - [Deleting Values](#deleting-values)
+- [Basic Usage](#basic-usage)
 - [Migrating to Setec](#migrating-to-setec)
 - [Operations and Maintenance](#operations-and-maintenance)
    - [Secret Rotation](#secret-rotation)
@@ -39,6 +43,47 @@ In addition to reducing deployment toil, this also helps reduce the attack
 surface for managing secrets in third-party deployment environments: All the
 secrets are stored in one place, with access controls and audit logs to allow
 forensics in the event of a compromise.
+
+
+## API Overview
+
+A **secret** in `setec` is a named collection of values. Each value is an
+arbitrary byte string identified by an integer **version number**.
+
+### Basic Operations
+
+The [setec API](api.md) defines the following basic operations:
+
+- The `get` method retrieves the value of a single version of a secret.
+  Clients use this method to obtain the secrets they need in production.
+
+- The `info` and `list` methods report the names and available versions (but
+  not the values) of secrets accessible to the caller.
+
+- The `put` method creates or adds a new value to a secret. The server assigns
+  and reports a version number for the value.
+
+### Current Active Versions
+
+- At any time, one version of the secret is designated as its **current active
+  version**. The active version is reported by default from the `get` method if
+  the caller does not specify a specific version.
+
+- When a secret is first created, its initial value (version 1) becomes its
+  current active version.
+
+- Thereafter, the `activate` method must be used to update the current active
+  version. This ensures the operator of the service has precise control over
+  which version of a secret should be used at a time.
+
+### Deleting Values
+
+- The `delete-version` method deletes a single version of a secret.  This
+  method will not delete the current active version.
+
+- The `delete` method deletes all the versions of a secret, removing it
+  entirely from the service.
+
 
 ## Basic usage
 
@@ -100,6 +145,7 @@ setec_get() {
   | jq -r '.Value|@base64d'
 }
 ```
+
 
 ## Migrating to Setec
 
@@ -193,6 +239,7 @@ call_api() {
 
 # ...
 ```
+
 
 ## Operations and Maintenance
 
@@ -438,6 +485,7 @@ the program's secret values to local storage, which means they can be read by
 program can start up immediately using cached data, even if the secrets server
 is not reachable when it launches.
 
+
 ## Self-Contained Operation
 
 In some cases, you may need to run a program entirely without access to a
@@ -531,6 +579,7 @@ bootstrap a new deployment using the following steps:
 The opposite is also true: By design, the format of the cache files can also be
 used directly as the input to a `FileClient` if you need to spin up a new
 instance of an existing server somewhere else.
+
 
 ## Unit Testing
 
