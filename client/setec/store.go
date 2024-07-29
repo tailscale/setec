@@ -475,12 +475,22 @@ func (s *Store) LookupWatcher(ctx context.Context, name string) (Watcher, error)
 type Secret func() []byte
 
 // Get returns the current active value of the secret.  It is a legibility
-// alias for calling the function.
-func (s Secret) Get() []byte { return s() }
+// alias for calling the function. If s == nil, Get returns nil.
+func (s Secret) Get() []byte {
+	if s == nil {
+		return nil
+	}
+	return s()
+}
 
 // GetString returns a copy of the current active value of the secret as a
-// string.
-func (s Secret) GetString() string { return string(s()) }
+// string. If s == nil, GetString returns "".
+func (s Secret) GetString() string {
+	if s == nil {
+		return ""
+	}
+	return string(s())
+}
 
 // StaticSecret returns a Secret that vends a static string value.
 // This is useful as a placeholder for development, migration, and testing.
@@ -765,6 +775,7 @@ type Watcher struct {
 }
 
 // Get returns the current active value of the secret.
+// A zero-valued Watcher returns nil.
 func (w Watcher) Get() []byte { return w.secret.Get() }
 
 // Ready returns a channel that delivers a value when the current active
