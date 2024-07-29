@@ -623,6 +623,21 @@ func TestNewFileCache(t *testing.T) {
 	})
 }
 
+func TestNilSecret(t *testing.T) {
+	var s setec.Secret
+	var w setec.Watcher
+
+	if got := s.Get(); got != nil {
+		t.Errorf("(nil).Get: got %v, want nil", got)
+	}
+	if got := s.GetString(); got != "" {
+		t.Errorf(`(nil).GetString: got %q, want ""`, got)
+	}
+	if got := w.Get(); got != nil {
+		t.Errorf("(zero).Get: got %v, want nil", got)
+	}
+}
+
 type badCache struct{}
 
 func (badCache) Write([]byte) error    { return errors.New("write failed") }
