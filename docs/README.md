@@ -498,7 +498,7 @@ is not reachable when it launches.
 >
 > As a general rule, we recommend you _not_ enable a cache unless the program
 > cannot tolerate even a temporary outage of the secrets service or your
-> tailnet at program start(for example, if it is part of your infrastructure
+> tailnet at program start (for example, if it is part of your infrastructure
 > bootstrap).  If you _must_ use a cache, we advise you structure your program
 > to automatically handle new secret values, and not to "lock in" the initial
 > value of a secret when the program starts up. You may also wish to decrease
