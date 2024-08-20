@@ -485,6 +485,24 @@ the program's secret values to local storage, which means they can be read by
 program can start up immediately using cached data, even if the secrets server
 is not reachable when it launches.
 
+> [!WARNING]
+> When you enable a secrets cache for a program, new secret values may not
+> immediately become available even if the program is restarted. By design, if
+> a cached value is available at startup, the store does not wait for the
+> secrets service to respond before delivering the initial (cached) value.
+>
+> The store will see the new value (and update the cache) the next time it
+> successfully polls.  If the program only looks at the initial value of the
+> secret, however, it will not see the new value until it is restarted _after_
+> the next update.
+>
+> As a general rule, we recommend you _not_ enable a cache unless the program
+> cannot tolerate even a temporary outage of the secrets service or your
+> tailnet at program start(for example, if it is part of your infrastructure
+> bootstrap).  If you _must_ use a cache, we advise you structure your program
+> to automatically handle new secret values, and not to "lock in" the initial
+> value of a secret when the program starts up. You may also wish to decrease
+> the polling interval from the default.
 
 ## Self-Contained Operation
 
