@@ -4,7 +4,6 @@
 package setec
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
-	"os"
 	"sync"
 	"time"
 
@@ -490,41 +488,6 @@ func (s Secret) GetString() string {
 		return ""
 	}
 	return string(s())
-}
-
-// StaticSecret returns a Secret that vends a static string value.
-// This is useful as a placeholder for development, migration, and testing.
-// The value reported by a static secret never changes.
-func StaticSecret(value string) Secret {
-	return func() []byte { return []byte(value) }
-}
-
-// StaticFile returns a Secret that vends the contents of path.  The contents
-// of the file are returned exactly as stored.
-//
-// This is useful as a placeholder for development, migration, and testing.
-// The value reported by this secret is the contents of path at the
-// time this function is called, and never changes.
-func StaticFile(path string) (Secret, error) {
-	bs, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading static secret: %w", err)
-	}
-	return func() []byte { return bs }, nil
-}
-
-// StaticTextFile returns a secret that vends the contents of path, which are
-// treated as text with leading and trailing whitespace trimmed.
-//
-// This is useful as a placeholder for development, migration, and testing.
-// The value reported by a static secret never changes.
-func StaticTextFile(path string) (Secret, error) {
-	bs, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("reading static secret: %w", err)
-	}
-	text := bytes.TrimSpace(bs)
-	return func() []byte { return text }, nil
 }
 
 // hasExpired reports whether cs is an undeclared secret whose last access time
