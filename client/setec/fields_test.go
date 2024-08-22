@@ -66,15 +66,14 @@ func TestFields(t *testing.T) {
 	// Verify that if we parse secrets with a store enabled, we correctly plumb
 	// the values from the service into the tagged fields.
 	type testTarget struct {
-		A  string        `setec:"apple"`
-		B  binValue      `setec:"bin-value"`
-		BP *binValue     `setec:"bin-value-ptr"`
-		P  []byte        `setec:"pear"`
-		L  setec.Secret  `setec:"plum"`
-		C  setec.Watcher `setec:"cherry"`
-		X  string        // untagged, not affected
-		J  testObj       `setec:"object-value,json"`
-		Z  int           `setec:"int-value,json"`
+		A  string       `setec:"apple"`
+		B  binValue     `setec:"bin-value"`
+		BP *binValue    `setec:"bin-value-ptr"`
+		P  []byte       `setec:"pear"`
+		L  setec.Secret `setec:"plum"`
+		X  string       // untagged, not affected
+		J  testObj      `setec:"object-value,json"`
+		Z  int          `setec:"int-value,json"`
 	}
 	var obj testTarget
 
@@ -98,7 +97,7 @@ func TestFields(t *testing.T) {
 	// Check that secret names respect prefixing.
 	if diff := cmp.Diff(f.Secrets(), []string{
 		"test/apple", "test/bin-value", "test/bin-value-ptr",
-		"test/pear", "test/plum", "test/cherry",
+		"test/pear", "test/plum",
 		"test/object-value", "test/int-value",
 	}); diff != "" {
 		t.Errorf("Prefixed secret names (-got, +want):\n%s", diff)
@@ -110,7 +109,7 @@ func TestFields(t *testing.T) {
 	}
 
 	// Don't try to compare complex plumbing; see below.
-	opt := cmpopts.IgnoreFields(testTarget{}, "L", "C")
+	opt := cmpopts.IgnoreFields(testTarget{}, "L")
 	if diff := cmp.Diff(obj, testTarget{
 		A:  secrets["apple"],
 		B:  binValue{"kumquat", "quince"},
@@ -124,9 +123,6 @@ func TestFields(t *testing.T) {
 
 	// Check the handle-plumbed fields.
 	if got, want := string(obj.L.Get()), secrets["plum"]; got != want {
-		t.Errorf("Secret field: got %q, want %q", got, want)
-	}
-	if got, want := string(obj.C.Get()), secrets["cherry"]; got != want {
 		t.Errorf("Secret field: got %q, want %q", got, want)
 	}
 }

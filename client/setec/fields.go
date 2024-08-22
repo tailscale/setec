@@ -166,7 +166,7 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	}
 
 	if f.vtype == watcherType {
-		w, err := s.LookupWatcher(ctx, fullName)
+		w, err := s.lookupWatcher(ctx, fullName)
 		if err != nil {
 			return err
 		}
@@ -198,7 +198,7 @@ var (
 	bytesType   = reflect.TypeOf([]byte(nil))
 	secretType  = reflect.TypeOf(Secret(nil))
 	stringType  = reflect.TypeOf(string(""))
-	watcherType = reflect.TypeOf(Watcher{})
+	watcherType = reflect.TypeOf(watcher{})
 	binaryType  = reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()
 )
 
