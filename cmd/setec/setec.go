@@ -142,7 +142,7 @@ generate the token, then re-run appending the provided value.`,
 	}
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
-	env := root.NewEnv(nil).SetContext(ctx).MergeFlags(true)
+	env := root.NewEnv(nil).SetContext(ctx)
 	command.RunOrFail(env, os.Args[1:])
 }
 

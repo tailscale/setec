@@ -10,9 +10,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.11
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.53.1
 	github.com/aws/aws-sdk-go-v2/service/sts v1.28.6
-	github.com/creachadair/command v0.1.13
+	github.com/creachadair/command v0.1.15
 	github.com/creachadair/flax v0.0.0-20240212192608-428acafa3bbe
-	github.com/creachadair/mds v0.14.6
+	github.com/creachadair/mds v0.17.1
 	github.com/google/go-cmp v0.6.0
 	github.com/tink-crypto/tink-go-awskms v0.0.0-20230616072154-ba4f9f22c3e9
 	github.com/tink-crypto/tink-go/v2 v2.1.0
