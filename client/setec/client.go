@@ -120,8 +120,8 @@ func (c Client) GetIfChanged(ctx context.Context, name string, oldVersion api.Se
 	})
 }
 
-// Get fetches a secret value by name and version. If version == 0, GetVersion
-// retrieves the current active version.
+// GetVersion fetches a secret value by name and version. If version == 0,
+// GetVersion retrieves the current active version.
 //
 // Access requirement: "get"
 func (c Client) GetVersion(ctx context.Context, name string, version api.SecretVersion) (*api.SecretValue, error) {

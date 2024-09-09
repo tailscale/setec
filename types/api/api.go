@@ -42,7 +42,7 @@ func (v SecretVersion) String() string {
 // translates this to the version marked active.
 const SecretVersionDefault SecretVersion = 0
 
-// Secret is a secret value and its associated version.
+// SecretValue is a secret value and its associated version.
 type SecretValue struct {
 	Value   []byte
 	Version SecretVersion
