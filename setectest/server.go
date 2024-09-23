@@ -75,8 +75,7 @@ func NewServer(t *testing.T, db *DB, opts *ServerOptions) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s, err := server.New(ctx, server.Config{
-		DBPath:   db.Path,
-		Key:      db.Key,
+		DB:       db.Actual,
 		AuditLog: opts.auditLog(),
 		WhoIs:    opts.whoIs(),
 		Mux:      mux,
