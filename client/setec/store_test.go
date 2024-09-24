@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -114,9 +113,6 @@ func TestStore(t *testing.T) {
 		}
 		if s, err := st.LookupSecret(ctx, "bravo"); err == nil {
 			t.Errorf("Lookup(bravo): got %q, want error", s.Get())
-		}
-		if w, err := st.LookupWatcher(ctx, "bravo"); err == nil {
-			t.Errorf("Lookup(bravo): got %q, want error", w.Get())
 		}
 	})
 }
@@ -291,71 +287,6 @@ func TestSlowInit(t *testing.T) {
 	checkSecretValue(t, st, "boo", "go for the eyes")
 }
 
-func TestWatcher(t *testing.T) {
-	d := setectest.NewDB(t, nil)
-	d.MustPut(d.Superuser, "green", "eggs and ham") // active
-	v2 := d.MustPut(d.Superuser, "green", "grow the rushes oh")
-
-	ts := setectest.NewServer(t, d, nil)
-	hs := httptest.NewServer(ts.Mux)
-	defer hs.Close()
-
-	ctx := context.Background()
-	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
-
-	pollTicker := setectest.NewFakeTicker()
-	st, err := setec.NewStore(ctx, setec.StoreConfig{
-		Client:     cli,
-		Secrets:    []string{"green"},
-		PollTicker: pollTicker,
-	})
-	if err != nil {
-		t.Fatalf("NewStore: unexpected error: %v", err)
-	}
-	defer st.Close()
-
-	// With lookups disabled, an unknown watcher panics.
-	mtest.MustPanicf(t, func() { st.Watcher("nonesuch") },
-		"Expected panic for an unknown watcher")
-
-	// Observe the initial value of the secret.
-	w := st.Watcher("green")
-	if got, want := string(w.Get()), "eggs and ham"; got != want {
-		t.Errorf("Initial value: got %q, want %q", got, want)
-	}
-	if !w.IsValid() {
-		t.Error("Watcher should be valid, but is not")
-	}
-
-	// The secret gets updated...
-	if err := cli.Activate(ctx, "green", v2); err != nil {
-		t.Fatalf("Activate to %v: unexpected error: %v", v2, err)
-	}
-
-	// The next poll occurs...
-	pollTicker.Poll()
-
-	// The watcher should get notified in a timely manner.
-	select {
-	case <-w.Ready():
-		t.Logf("✓ A new version of the secret is available")
-	case <-time.After(5 * time.Second):
-		t.Fatal("Timed out waiting for a watcher update")
-	}
-
-	if got, want := string(w.Get()), "grow the rushes oh"; got != want {
-		t.Errorf("Updated value: got %q, want %q", got, want)
-	}
-
-	// With no updates, the watchers should not appear ready.
-	select {
-	case <-w.Ready():
-		t.Error("Watcher is unexpectedly ready after no update")
-	case <-time.After(100 * time.Millisecond):
-		// OK
-	}
-}
-
 func TestUpdater(t *testing.T) {
 	d := setectest.NewDB(t, nil)
 	d.MustPut(d.Superuser, "label", "malarkey") // active
@@ -380,30 +311,57 @@ func TestUpdater(t *testing.T) {
 	defer st.Close()
 
 	// Set up an updater that tracks a string against the secret named "label".
-	u := setec.NewUpdater(st.Watcher("label"), func(secret []byte) string {
-		return fmt.Sprintf("value: %q", secret)
-	})
-	checkValue := func(label, want string) {
-		if got := u.Get(); got != want {
-			t.Errorf("%s: got %q, want %q", label, got, want)
+	t.Run("Dynamic", func(t *testing.T) {
+		u, err := setec.NewUpdater(ctx, st, "label", func(secret []byte) (*closeable[string], error) {
+			return &closeable[string]{Value: string(secret)}, nil
+		})
+		if err != nil {
+			t.Fatalf("NewUpdater: unexpected error: %v", err)
 		}
-	}
+		checkValue := func(label, want string) {
+			if got := u.Get().Value; got != want {
+				t.Errorf("%s: got %q, want %q", label, got, want)
+			}
+		}
 
-	checkValue("Initial value", `value: "malarkey"`)
+		checkValue("Initial value", `malarkey`)
+		last := u.Get()
+		if last.Closed {
+			t.Error("Initial value is closed early")
+		}
 
-	// The secret gets updated...
-	if err := cli.Activate(ctx, "label", v2); err != nil {
-		t.Fatalf("Activate to %v: unexpected error: %v", v2, err)
-	}
-	pollTicker.Poll()
+		// The secret gets updated...
+		if err := cli.Activate(ctx, "label", v2); err != nil {
+			t.Fatalf("Activate to %v: unexpected error: %v", v2, err)
+		}
+		pollTicker.Poll()
 
-	// The next get should see the updated value.
-	checkValue("Updated value", `value: "dog-faced pony soldier"`)
+		// The next get should see the updated value.
+		checkValue("Updated value", `dog-faced pony soldier`)
 
-	pollTicker.Poll()
+		// The previous value should have been closed.
+		if !last.Closed {
+			t.Errorf("Initial value was not closed: %v", last)
+		}
 
-	// The next get should not see a change.
-	checkValue("Updated value", `value: "dog-faced pony soldier"`)
+		last = u.Get()
+		pollTicker.Poll()
+
+		// The next get should not see a change.
+		checkValue("Updated value", `dog-faced pony soldier`)
+		if last.Closed {
+			t.Errorf("Update value was closed: %v", last)
+		}
+	})
+
+	t.Run("Static", func(t *testing.T) {
+		const testValue = "I am the chosen one"
+		u := setec.StaticUpdater(testValue)
+
+		if got := u.Get(); got != testValue {
+			t.Errorf("Get: got %q, want %q", got, testValue)
+		}
+	})
 }
 
 func TestLookup(t *testing.T) {
@@ -453,14 +411,7 @@ func TestLookup(t *testing.T) {
 		t.Errorf("Lookup(green): got %q, want %q", got, want)
 	}
 
-	// Case 4: We can look up a watcher for "blue".
-	if w, err := st.LookupWatcher(ctx, "blue"); err != nil {
-		t.Errorf("Lookup(blue): unexpected error: %v", err)
-	} else if got, want := string(w.Get()), "dolphins"; got != want {
-		t.Errorf("Lookup(blue): got %q, want %q", got, want)
-	}
-
-	// Case 5: We still can't lookup a non-existent secret.
+	// Case 4: We still can't lookup a non-existent secret.
 	if s, err := st.LookupSecret(ctx, "orange"); err == nil {
 		t.Errorf("Lookup(orange): got %q, want error", s.Get())
 	} else {
@@ -470,9 +421,6 @@ func TestLookup(t *testing.T) {
 	// With lookup enabled, unknown secrets report nil.
 	if f := st.Secret("nonesuch"); f != nil {
 		t.Errorf("Lookup(nonesuch): got %v, want nil", f)
-	}
-	if w := st.Watcher("nonesuch"); w.IsValid() {
-		t.Errorf("Watcher(nonesuch): got %v, want invalid", w)
 	}
 }
 
@@ -625,7 +573,6 @@ func TestNewFileCache(t *testing.T) {
 
 func TestNilSecret(t *testing.T) {
 	var s setec.Secret
-	var w setec.Watcher
 
 	if got := s.Get(); got != nil {
 		t.Errorf("(nil).Get: got %v, want nil", got)
@@ -633,12 +580,19 @@ func TestNilSecret(t *testing.T) {
 	if got := s.GetString(); got != "" {
 		t.Errorf(`(nil).GetString: got %q, want ""`, got)
 	}
-	if got := w.Get(); got != nil {
-		t.Errorf("(zero).Get: got %v, want nil", got)
-	}
 }
 
 type badCache struct{}
 
 func (badCache) Write([]byte) error    { return errors.New("write failed") }
 func (badCache) Read() ([]byte, error) { return nil, errors.New("read failed") }
+
+type closeable[T any] struct {
+	Value  T
+	Closed bool
+}
+
+func (c *closeable[T]) Close() error {
+	c.Closed = true
+	return nil
+}

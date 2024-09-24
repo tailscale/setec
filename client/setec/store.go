@@ -10,6 +10,7 @@ import (
 	"errors"
 	"expvar"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"os"
@@ -43,7 +44,7 @@ type Store struct {
 
 		m map[string]*cachedSecret // :: secret name → active value
 		f map[string]Secret        // :: secret name → fetch function
-		w map[string][]Watcher     // :: secret name → watchers
+		w map[string][]watcher     // :: secret name → watchers
 	}
 
 	ctx    context.Context    // governs the polling task and lookups
@@ -92,8 +93,7 @@ type StoreConfig struct {
 	// AllowLookup instructs the store to allow the caller to look up secrets
 	// not known to the store at the time of construction. If false, only
 	// secrets pre-declared in the Secrets and Structs slices can be fetched,
-	// and the Lookup and LookupWatcher methods will report an error for all
-	// un-listed secrets.
+	// and the Lookup method will report an error for all un-listed secrets.
 	AllowLookup bool
 
 	// Cache, if non-nil, is a cache that persists secrets locally.
@@ -198,7 +198,7 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 	// Initialize the active versions maps.
 	s.active.m = make(map[string]*cachedSecret)
 	s.active.f = make(map[string]Secret)
-	s.active.w = make(map[string][]Watcher)
+	s.active.w = make(map[string][]watcher)
 
 	// If we have a cache, try to load data from there first.
 	data, err := s.loadCache()
@@ -335,7 +335,7 @@ func (s *Store) secretLocked(name string) Secret {
 
 			// Since the caller is actively requesting the value of the secret,
 			// update the last-accessed timestamp. This also applies to accesses
-			// via a Watcher, since the watchers wrap the underlying Secret.
+			// via a watcher, since the watchers wrap the underlying Secret.
 			s.countSecretFetch.Add(1)
 			cs := s.active.m[name]
 			cs.LastAccess = s.timeNow().Unix()
@@ -414,57 +414,6 @@ func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, 
 	}
 }
 
-// Watcher returns a watcher for the named secret.
-//
-// If s has lookups enabled, Watcher returns a zero Watcher for an unknown name.
-// Otherwise, Watcher panics for an unknown name.
-func (s *Store) Watcher(name string) Watcher {
-	s.active.Lock()
-	defer s.active.Unlock()
-	secret := s.secretLocked(name)
-	if secret == nil {
-		if s.allowLookup {
-			return Watcher{}
-		}
-		panic(fmt.Sprintf("secret %q not found in StoreConfig with lookup disabled", name))
-	}
-	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
-	s.active.w[name] = append(s.active.w[name], w)
-	return w
-}
-
-// LookupWatcher returns a watcher for the named secret. If name is already
-// known by s, this is equivalent to Watcher; otherwise s attempts to fetch the
-// latest active version of the secret from the service and either adds it to
-// the collection or reports an error.
-// LookupWatcher does not automatically retry in case of errors.
-func (s *Store) LookupWatcher(ctx context.Context, name string) (Watcher, error) {
-	s.active.Lock()
-	defer s.active.Unlock()
-	var secret Secret
-	if _, ok := s.active.m[name]; ok {
-		secret = s.secretLocked(name) // OK, we already have it
-	} else if !s.allowLookup {
-		return Watcher{}, errors.New("lookup is not enabled")
-	} else {
-		// We must release the lock to fetch from the server; do this in a
-		// closure to ensure lock discipline is restored in case of a panic.
-		got, err := func() (Secret, error) {
-			s.active.Unlock() // NOTE: This order is intended.
-			defer s.active.Lock()
-			return s.lookupSecretInternal(ctx, name)
-		}()
-		if err != nil {
-			return Watcher{}, err
-		}
-		secret = got
-	}
-
-	w := Watcher{ready: make(chan struct{}, 1), secret: secret}
-	s.active.w[name] = append(s.active.w[name], w)
-	return w, nil
-}
-
 // A Secret is a function that fetches the current active value of a secret.
 // The caller should not cache the value returned; the function does not block
 // and will always report a valid (if possibly stale) result.
@@ -511,6 +460,17 @@ func StaticFile(path string) (Secret, error) {
 		return nil, fmt.Errorf("reading static secret: %w", err)
 	}
 	return func() []byte { return bs }, nil
+}
+
+func panicOnUpdate[T any]([]byte) (T, error) { panic("unexpected value update") }
+
+// StaticUpdater returns an [Updater] that vends the specified fixed value.
+// The value reported by the updater never changes.
+func StaticUpdater[T any](fixedValue T) *Updater[T] {
+	return &Updater[T]{
+		newValue: panicOnUpdate[T],
+		value:    fixedValue,
+	}
 }
 
 // StaticTextFile returns a secret that vends the contents of path, which are
@@ -767,76 +727,85 @@ type stdTicker struct{ *time.Ticker }
 func (s stdTicker) Chan() <-chan time.Time { return s.Ticker.C }
 func (stdTicker) Done()                    {}
 
-// A Watcher monitors the current active value of a secret, and allows the user
-// to be notified when the value of the secret changes.
-type Watcher struct {
-	ready  chan struct{}
-	secret Secret
-}
-
-// Get returns the current active value of the secret.
-// A zero-valued Watcher returns nil.
-func (w Watcher) Get() []byte { return w.secret.Get() }
-
-// Ready returns a channel that delivers a value when the current active
-// version of the secret has changed. The channel is never closed.
+// NewUpdater creates a new Updater that maintains a value based on the
+// specified secret in s.  The newValue function constructs a value of type T
+// from the bytes of a secret.
 //
-// The ready channel is a level trigger. The Watcher does not queue multiple
-// notifications, and if the caller does not drain the channel subsequent
-// notifications will be dropped.
-func (w Watcher) Ready() <-chan struct{} { return w.ready }
-
-func (w Watcher) notify() {
-	select {
-	case w.ready <- struct{}{}:
-	default:
+// The initial value is constructed using newValue on the current secret
+// version when NewUpdater is called. If this initial call reports an error,
+// NewUpdater returns nil and that error. Otherwise, the Updater begins with
+// that value.
+//
+// Once constructed, call the Get method to fetch the current value. It is safe
+// to call Get concurrently from multiple goroutines. See [Updater.Get] for
+// details of how updates are handled.
+//
+// If s has lookups enabled, NewWatcher will attempt to look up name if it is
+// not already declared in s. If lookups are not enabled, or of the secret is
+// not found, NewUpdater reports an error. It does not retry in case of lookup
+// errors.
+func NewUpdater[T any](ctx context.Context, s *Store, name string, newValue func([]byte) (T, error)) (*Updater[T], error) {
+	w, err := s.lookupWatcher(ctx, name)
+	if err != nil {
+		return nil, err
 	}
-}
-
-// IsValid reports whether w is valid, meaning that it has a secret available.
-func (w Watcher) IsValid() bool { return w.secret != nil }
-
-// NewUpdater creates a new Updater that tracks updates to a value based on new
-// secret versions delivered to w.  The newValue function returns a new value
-// of the type based on its argument, a secret value.
-//
-// The initial value is constructed by calling newValue with the current secret
-// version in w at the time NewUpdater is called.  Calls to the Get method
-// update the value as needed when w changes.
-//
-// The updater synchronizes calls to Get and newValue, so the callback can
-// safely interact with shared state without additional locking.
-func NewUpdater[T any](w Watcher, newValue func([]byte) T) *Updater[T] {
+	init, err := newValue(w.Get())
+	if err != nil {
+		return nil, err
+	}
 	return &Updater[T]{
 		newValue: newValue,
 		w:        w,
-		value:    newValue(w.Get()),
-	}
+		value:    init,
+		logf:     s.logf, // same place as the underlying store
+	}, nil
 }
 
-// An Updater tracks a value whose state depends on a secret, together with a
-// watcher for updates to the secret. The caller provides a function to update
-// the value when a new version of the secret is delivered, and the Updater
-// manages access and updates to the value.
+// An Updater tracks a value whose state depends on a secret.  It watches for
+// updates to the secret, and invokes a caller-provided function to update the
+// value when a new version of the secret is delivered.
 type Updater[T any] struct {
-	newValue func([]byte) T
-	w        Watcher
+	newValue func([]byte) (T, error)
+	w        watcher
 	mu       sync.Mutex
-	value    T
+	value    T     // the current value
+	err      error // if non-nil, the error from the last update attempt
+	logf     logger.Logf
 }
 
 // Get fetches the current value of u, first updating it if the secret has
-// changed.  It is safe to call Get concurrently from multiple goroutines.
+// changed. It is safe to call Get concurrently from multiple goroutines.
+//
+// If Get receives an error while trying to update u, it returns the previous
+// value. Use the Err method to check for an update error. If T implements the
+// [io.Closer] interface, Get calls Close on the old value before updating.
 func (u *Updater[T]) Get() T {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 	select {
 	case <-u.w.Ready():
-		u.value = u.newValue(u.w.Get())
+		nv, err := u.newValue(u.w.Get())
+		if err != nil {
+			u.logf("WARNING: Error updating value: %v (keeping old value)", err)
+		} else {
+			if c, ok := any(u.value).(io.Closer); ok {
+				c.Close()
+			}
+			u.value = nv
+		}
+		u.err = err
+		return u.value
 	default:
 		// no change, use the existing value
 	}
 	return u.value
+}
+
+// Err reports the error, if any, from the latest update to the value of u.
+func (u *Updater[T]) Err() error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return u.err
 }
 
 type cachedSecret struct {
