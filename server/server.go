@@ -33,23 +33,37 @@ import (
 
 // Config is the configuration for a Server.
 type Config struct {
-	// DBPath is the path to the secrets database.
+	// DB, if set, is used as the secrets database for the server.
+	// If non-nil, the DBPath and Key fields are ignored.
+	// If nil, then DBPath, Key, and AuditLog must all be set.
+	DB *db.DB
+
+	// DBPath, if non-empty, is the path to the secrets database.
+	// It must be set if DB is nil.
 	DBPath string
+
 	// Key is the AEAD used to encrypt/decrypt the database.
+	// It must be set if DB is nil.
 	Key tink.AEAD
+
 	// AuditLog is the writer to use for audit logs.
+	// It must be set if DB is nil.
 	AuditLog *audit.Writer
+
 	// WhoIs is a function that reports an identity for a client IP
 	// address. Outside of tests, it will be the WhoIs of a Tailscale
 	// LocalClient.
 	WhoIs func(ctx context.Context, remoteAddr string) (*apitype.WhoIsResponse, error)
+
 	// Mux is the http.ServeMux on which the server registers its HTTP
-	// handlers.
+	// handlers. It must be non-nil.
 	Mux *http.ServeMux
+
 	// BackupBucket is an AWS S3 bucket name to which database
 	// backups should be saved. If empty, the database is not backed
 	// up.
 	BackupBucket string
+
 	// BackupBucketRegion is the AWS region that the S3 bucket is in.
 	//
 	// You would think that one could derive this automatically given
@@ -91,9 +105,13 @@ var staticFiles embed.FS
 
 // New creates a secret server and makes it ready to serve.
 func New(ctx context.Context, cfg Config) (*Server, error) {
-	db, err := db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
-	if err != nil {
-		return nil, fmt.Errorf("opening DB: %w", err)
+	kdb := cfg.DB
+	if kdb == nil {
+		var err error
+		kdb, err = db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
+		if err != nil {
+			return nil, fmt.Errorf("opening DB: %w", err)
+		}
 	}
 
 	tmpl := template.New("").Funcs(template.FuncMap{
@@ -106,7 +124,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 
 	ret := &Server{
-		db:    db,
+		db:    kdb,
 		whois: cfg.WhoIs,
 		tmpl:  tmpl,
 

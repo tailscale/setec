@@ -7,17 +7,58 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"testing"
 
 	"github.com/tailscale/setec/acl"
+	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/client/setec"
+	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/setectest"
 	"github.com/tailscale/setec/types/api"
+	"github.com/tink-crypto/tink-go/v2/testutil"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
 )
+
+func TestNew(t *testing.T) {
+	ctx := context.Background()
+	t.Run("NoDB", func(t *testing.T) {
+		d, err := server.New(ctx, server.Config{})
+		if err == nil {
+			t.Errorf("New with no DB: got %+v, want error", d)
+		}
+	})
+	t.Run("PathKey", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "test.db")
+		_, err := server.New(ctx, server.Config{
+			DBPath:   path,
+			Key:      &testutil.DummyAEAD{Name: t.Name()},
+			AuditLog: audit.New(io.Discard),
+			Mux:      http.NewServeMux(),
+		})
+		if err != nil {
+			t.Errorf("New: unexpected error: %v", err)
+		}
+	})
+	t.Run("DB", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "test.db")
+		kdb, err := db.Open(path, &testutil.DummyAEAD{Name: t.Name()}, audit.New(io.Discard))
+		if err != nil {
+			t.Fatalf("Open database: %v", err)
+		}
+		if _, err := server.New(ctx, server.Config{
+			DB:  kdb,
+			Mux: http.NewServeMux(),
+		}); err != nil {
+			t.Errorf("New: unexpected error: %v", err)
+		}
+	})
+}
 
 func TestServerGetChanged(t *testing.T) {
 	d := setectest.NewDB(t, nil)
