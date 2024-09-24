@@ -125,7 +125,7 @@ func TestCachedStore(t *testing.T) {
 	const cacheData = `{"alpha":{"secret":{"Value":"Zm9vYmFy","Version":1},"lastAccess":"0"}}`
 
 	// Make a poll ticker so we can control the poll schedule.
-	pollTicker := newFakeTicker()
+	pollTicker := setectest.NewFakeTicker()
 
 	// Populate a memory cache with an "old" value of a secret.
 	mc := setec.NewMemCache(cacheData)
@@ -303,7 +303,7 @@ func TestWatcher(t *testing.T) {
 	ctx := context.Background()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
-	pollTicker := newFakeTicker()
+	pollTicker := setectest.NewFakeTicker()
 	st, err := setec.NewStore(ctx, setec.StoreConfig{
 		Client:     cli,
 		Secrets:    []string{"green"},
@@ -368,7 +368,7 @@ func TestUpdater(t *testing.T) {
 	ctx := context.Background()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
-	pollTicker := newFakeTicker()
+	pollTicker := setectest.NewFakeTicker()
 	st, err := setec.NewStore(ctx, setec.StoreConfig{
 		Client:     cli,
 		Secrets:    []string{"label"},
@@ -521,7 +521,7 @@ func TestCacheExpiry(t *testing.T) {
 	})
 
 	t.Run("Probe", func(t *testing.T) {
-		pt := newFakeTicker()
+		pt := setectest.NewFakeTicker()
 
 		st, err := setec.NewStore(ctx, setec.StoreConfig{
 			Client:      cli,
@@ -642,22 +642,3 @@ type badCache struct{}
 
 func (badCache) Write([]byte) error    { return errors.New("write failed") }
 func (badCache) Read() ([]byte, error) { return nil, errors.New("read failed") }
-
-func newFakeTicker() *fakeTicker {
-	return &fakeTicker{ch: make(chan time.Time), done: make(chan struct{})}
-}
-
-type fakeTicker struct {
-	ch   chan time.Time
-	done chan struct{}
-}
-
-func (fakeTicker) Stop()                    {}
-func (f fakeTicker) Chan() <-chan time.Time { return f.ch }
-func (f *fakeTicker) Done()                 { f.done <- struct{}{} }
-
-// Poll signals the ticker, then waits for Done to be invoked.
-func (f *fakeTicker) Poll() {
-	f.ch <- time.Now()
-	<-f.done
-}
