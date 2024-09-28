@@ -357,66 +357,34 @@ func main() {
 }
 ```
 
-Alternatively, you can obtain a [`setec.Watcher`][setecwatcher], which combines
-a secret with a channel that notifies when a new secret value is available:
+Alternatively, you can obtain a [`setec.Updater`][setecupdater], which uses a
+user-provided callback to update a local value whenever a new version of a
+secret becomes available. An updater is safe for concurrent use by multiple
+goroutines.
 
-```go
-// Get the handle, as before.
-apiKey := st.Watcher("prod/my-program/secret-1")
-```
-
-A `Watcher` contains a level-triggered channel that receives a value when a new
-version of the secret has been applied. You can use this to update API clients
-and other values that depend on the current secret value, but which might be
-expensive to re-construct every time they're used.
-
-For example, here is one way to update a client value based on a watcher:
-
-```go
-// Create a client with the current value.
-cli := someservice.NewClient("username", apiKey.Get())
-
-// Make a helper that will refresh the client when the secret updates.
-// This example assumes no concurrency; you may need a lock if multiple
-// goroutines will request a client at the same time.
-// See below for a simple way to handle that.
-getClient := func() *someservice.Client {
-   select {
-   case <-apiKey.Ready():
-     cli = someservice.NewClient("username", apiKey.Get())
-   default:
-   }
-   return cli
-}
-
-// Make API calls using the helper.
-rsp, err := getClient().Method(ctx, args)
-// ...
-```
-
-As noted in the comments, the above example does not work if multiple
-goroutines may access the client concurrently, since they will race on reading
-and updating the `cli` variable.  You could add a lock, but the client library
-also includes a [`setec.Updater`][setecupdater] type that will manage updates
-for you even with concurrent use:
+For example:
 
 ```go
 // Construct an updater, given a callback that takes a secret value and returns
 // a new someservice client using that secret.
-client := setec.NewUpdater(apiKey, func(secret []byte) *someservice.Client {
-   return someservice.NewClient("username", secret)
+client, err := setec.NewUpdater(ctx, store, "secret/name", func(secret []byte) (*svc.Client, error) {
+   return svc.NewClient("username", secret)
 })
+if err != nil {
+   return fmt.Errorf("initialize client: %w", err)
+}
 
-// Now, when you need a client, use the updater:
+// Whenever you need a client, call the Get method:
 rsp, err := client.Get().Method(ctx, args)
 // ...
 ```
 
 The updater constructs the initial client by invoking the callback with the
-value of `w` when `NewUpdater` is called. Thereafter, calls to `u.Get()` will
-return the same client until the secret in `w` changes. When that happens, the
-updater invokes the callback again with the new secret value, to get a fresh
-client.
+current secret value when `NewUpdater` is called. Thereafter, calls to
+`u.Get()` will return the same client until the secret changes. When that
+happens, `Get` invokes the callback again with the new secret value, to make a
+fresh client.  If an error occurs while updating the client, the updater keeps
+returning the previous value.
 
 #### Explicit Refresh
 
@@ -646,6 +614,5 @@ if err != nil {
 [setecstore]: https://godoc.org/github.com/tailscale/setec/client/setec#Store
 [setectest]: https://godoc.org/github.com/tailscale/setec/setectest
 [setecupdater]: https://godoc.org/github.com/tailscale/setec/client/setec#Updater
-[setecwatcher]: https://godoc.org/github.com/tailscale/setec/client/setec#Watcher
 [stserver]: https://godoc.org/github.com/tailscale/setec/setectest#Server
 [strefresh]: https://godoc.org/github.com/tailscale/setec/client/setec#Store.Refresh
