@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -855,10 +856,18 @@ func (c StoreConfig) secretNames() ([]string, []*Fields, error) {
 			return nil, nil, fmt.Errorf("parse struct fields: %w", err)
 		}
 
-		// We don't need to deduplicate here, the constructor merges all the
-		// names into a map.
 		sec = append(sec, fs.Secrets()...)
 		svs = append(svs, fs)
+	}
+	// Sort and compact (deduplicate) secret names.
+	// Although the constructor puts them into a map, duplicates can "poison"
+	// the initialization, so remove them up front.
+	slices.Sort(sec)
+	sec = slices.Compact(sec)
+	for _, name := range sec {
+		if name == "" {
+			return nil, nil, errors.New("empty secret name not allowed")
+		}
 	}
 	return sec, svs, nil
 }
