@@ -115,6 +115,32 @@ func TestStore(t *testing.T) {
 			t.Errorf("Lookup(bravo): got %q, want error", s.Get())
 		}
 	})
+
+	t.Run("NewStore_emptyName", func(t *testing.T) {
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:      cli,
+			Secrets:     []string{""},
+			Logf:        logger.Discard,
+			AllowLookup: true,
+		})
+		if err == nil {
+			t.Fatalf("NewStore(empty): got %+v, want error", st)
+		}
+	})
+
+	t.Run("NewStore_dupName", func(t *testing.T) {
+		// Regression: A duplicate name can poison the initialization map, so we
+		// need to deduplicate as part of collection.
+		st, err := setec.NewStore(ctx, setec.StoreConfig{
+			Client:  cli,
+			Secrets: []string{"alpha", "alpha"},
+			Logf:    logger.Discard,
+		})
+		if err != nil {
+			t.Fatalf("NewStore(dup): unexpected error: %v", err)
+		}
+		t.Logf("NewStore: got secret %q", st.Secret("alpha").GetString())
+	})
 }
 
 func TestCachedStore(t *testing.T) {
