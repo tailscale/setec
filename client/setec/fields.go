@@ -16,6 +16,11 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// ErrNoFields is a sentinel error reported by ParseFields when its argument is
+// a valid pointer to a struct, but does not contain any matching setec-tagged
+// fields. The caller should use [errors.Is] to check for this error.
+var ErrNoFields = errors.New("no setec-tagged fields")
+
 // ParseFields parses information about setec-tagged fields from v. The
 // concrete type of v must be a pointer to a struct value with at least one
 // tagged field.  The namePrefix, if non-empty, is joined to the front of each
@@ -28,7 +33,7 @@ func ParseFields(v any, namePrefix string) (*Fields, error) {
 		return nil, err
 	}
 	if len(fi) == 0 {
-		return nil, fmt.Errorf("type %v has no setec-tagged fields", reflect.TypeOf(v).Elem())
+		return nil, fmt.Errorf("type %v: %w", reflect.TypeOf(v).Elem(), ErrNoFields)
 	}
 	return &Fields{prefix: namePrefix, fields: fi}, nil
 }

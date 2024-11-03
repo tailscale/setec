@@ -140,8 +140,14 @@ func TestParseErrors(t *testing.T) {
 	}
 	t.Run("NonPointer", checkFail(struct{ X string }{}, "not a pointer"))
 	t.Run("NonStruct", checkFail(new(string), "not a pointer to a struct"))
-	t.Run("NoTaggedFields", checkFail(&struct{ X string }{}, "no setec-tagged fields"))
 	t.Run("InvalidType", checkFail(&struct {
 		X float64 `setec:"x"` // N.B. not marked with JSON
 	}{}, "unsupported type"))
+
+	t.Run("NoTaggedFields", func(t *testing.T) {
+		_, err := setec.ParseFields(&struct{ X string }{}, "")
+		if !errors.Is(err, setec.ErrNoFields) {
+			t.Fatalf("ParseFields: got %v, want %v", err, setec.ErrNoFields)
+		}
+	})
 }
