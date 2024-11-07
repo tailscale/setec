@@ -82,8 +82,6 @@ func ParseFields(v any, namePrefix string) (*Fields, error) {
 //
 //   - A field of type [setec.Secret] is populated with a handle to the secret.
 //
-//   - A field of type [setec.Watcher] is populated with a watcher for the secret.
-//
 //   - A field whose (pointer) type implements the [encoding.BinaryUnmarshaler]
 //     interface has its UnmarshalBinary method called with the secret value.
 //     This may be used to handle structured data, or to add validation.
@@ -165,15 +163,6 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 		return json.Unmarshal(v.Get(), f.value.Interface())
 	}
 
-	if f.vtype == watcherType {
-		w, err := s.lookupWatcher(ctx, fullName)
-		if err != nil {
-			return err
-		}
-		f.value.Elem().Set(reflect.ValueOf(w))
-		return nil
-	}
-
 	v, err := s.LookupSecret(ctx, fullName)
 	if err != nil {
 		return err
@@ -195,11 +184,10 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 }
 
 var (
-	bytesType   = reflect.TypeOf([]byte(nil))
-	secretType  = reflect.TypeOf(Secret(nil))
-	stringType  = reflect.TypeOf(string(""))
-	watcherType = reflect.TypeOf(watcher{})
-	binaryType  = reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()
+	bytesType  = reflect.TypeOf([]byte(nil))
+	secretType = reflect.TypeOf(Secret(nil))
+	stringType = reflect.TypeOf(string(""))
+	binaryType = reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()
 )
 
 // parseFields constructs a field list for obj, which must be a pointer to a
@@ -235,7 +223,7 @@ func parseFields(obj any) ([]fieldInfo, error) {
 				fi.unmarshal = u
 			} else {
 				switch ft.Type {
-				case bytesType, stringType, secretType, watcherType:
+				case bytesType, stringType, secretType:
 					// OK, these types are supported.
 				default:
 					return nil, fmt.Errorf("unsupported type %v for tagged field %q", ft.Type, ft.Name)
