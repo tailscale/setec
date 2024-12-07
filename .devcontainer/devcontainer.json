@@ -1,0 +1,8 @@
+{
+    "image": "mcr.microsoft.com/devcontainers/go:latest",
+    "runArgs": ["--device=/dev/net/tun"],
+    "features": {
+        "ghcr.io/tailscale/codespace/tailscale": {}
+    }
+  }
+  
