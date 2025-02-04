@@ -19,6 +19,7 @@ package db
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -26,7 +27,6 @@ import (
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/tink"
-	"golang.org/x/exp/slices"
 	"tailscale.com/util/multierr"
 )
 
