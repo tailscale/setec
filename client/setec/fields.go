@@ -11,9 +11,8 @@ import (
 	"fmt"
 	"path"
 	"reflect"
+	"slices"
 	"strings"
-
-	"golang.org/x/exp/slices"
 )
 
 // ErrNoFields is a sentinel error reported by ParseFields when its argument is
