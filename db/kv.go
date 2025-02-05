@@ -10,11 +10,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
-
-	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
+	"slices"
 
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/aead"
@@ -266,9 +264,7 @@ func (kv *kv) writeGen() uint64 {
 
 // list returns a list of all secret names in kv.
 func (kv *kv) list() []string {
-	ret := maps.Keys(kv.secrets)
-	sort.Strings(ret)
-	return ret
+	return slices.Sorted(maps.Keys(kv.secrets))
 }
 
 // info returns metadata about a secret.
