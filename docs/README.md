@@ -1,8 +1,14 @@
-# Documentation for Setec
+# setec
+
+Setec is a lightweight secrets management service that uses Tailscale for access control.
+
+> [!IMPORTANT]
+> File issues in our [primary open source repository](https://github.com/tailscale/tailscale/issues).
 
 ## Table of Contents
 
 - [Background](#background)
+- [Get started](#get-started)
 - [API Overview](#api-overview)
    - [Basic Operations](#basic-operations)
    - [Current Active Versions](#current-active-versions)
@@ -14,6 +20,9 @@
    - [Automatic Updates](#automatic-updates)
    - [Bootstrapping and Availability](#bootstrapping-and-availability)
 - [Testing](#testing)
+
+### Additional documentation
+
 - [API documentation](api.md)
 - [Running a setec server](server.md)
 
@@ -44,8 +53,13 @@ surface for managing secrets in third-party deployment environments: All the
 secrets are stored in one place, with access controls and audit logs to allow
 forensics in the event of a compromise.
 
+## Get started
+
+To set up a setec server, follow the instructions in [Running a setec server](server.md).
 
 ## API Overview
+
+See also the [full API documentation](api.md).
 
 A **secret** in `setec` is a named collection of values. Each value is an
 arbitrary byte string identified by an integer **version number**.
