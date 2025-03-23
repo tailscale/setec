@@ -85,7 +85,7 @@ production use**, but is useful for testing and debugging integrations locally.
 
     ```shell
     TS_AUTHKEY=tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q aws-vault exec myaccount -- \
-      setec -server \
+      setec server \
         --hostname=setec-dev \
         --state-dir=$HOME/setec-dev \
         --kms-key-name=arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1
