@@ -3,6 +3,54 @@
 
 // Package setec is a client library to access and manage secrets stored
 // remotely in a secret management service.
+//
+// # Basic Usage
+//
+// Callers that consume secrets for production use should use a [Store] to read
+// initial values for all desired secrets at startup, and cache them in memory
+// while running.  This ensures that once the program is started, it will
+// always have a valid value for each of its secrets, even if the setec server
+// is temporarily unavailable.
+//
+// To initialize a store, call [NewStore], providing a [Client] for the API and
+// the names of the desired secrets:
+//
+//	st, err := setec.NewStore(ctx, setec.StoreConfig{
+//	   Client:  setec.Client{Server: "https://secrets.example.com"},
+//	   Secrets: []string{"account-name", "access-key"},
+//	})
+//	if err != nil {
+//	   log.Fatalf("Initializing secrets: %v", err)
+//	}
+//
+// This will block until initial values are available for each declared secret,
+// or ctx ends. Set a timeout or deadline on the provided context if you want
+// to fail program startup after some reasonable grace period. Once [NewStore]
+// has returned successfully, a value for each declared secret can be accessed
+// immediately without blocking at any time:
+//
+//	accessKey := st.Secret("access-key").GetString()
+//
+// The Store periodically polls for new secret values in the background, so the
+// caller does not need to worry about whether the server is available at the
+// time when it needs a secret.
+//
+// Where possible, it is best to declare all desired secrets in the config, and
+// by default only declared secrets can be accessed.  If a caller does not know
+// the names of all the secrets in advance, you may use the AllowLookup option
+// to permit undeclared secrets to be fetched later.
+//
+// See also [Bootstrapping and Availability].
+//
+// # Other Operations
+//
+// Programs that need to create, update, or delete secrets and secret versions
+// may use a [Client] to directly call the full [setec HTTP API]. In this case,
+// the caller is responsible for handling retries in case the secrets service
+// is temporarily unavailable.
+//
+// [Bootstrapping and Availability]: https://github.com/tailscale/setec?tab=readme-ov-file#bootstrapping-and-availability
+// [setec HTTP API]: https://github.com/tailscale/setec/blob/main/docs/api.md
 package setec
 
 import (
