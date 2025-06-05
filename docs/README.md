@@ -1,5 +1,8 @@
 # setec
 
+[![GoDoc](https://img.shields.io/static/v1?label=godoc&message=reference&color=silver)](https://pkg.go.dev/github.com/tailscale/setec)
+[![CI](https://github.com/tailscale/setec/actions/workflows/go-presubmit.yml/badge.svg?event=push&branch=main)](https://github.com/tailscale/setec/actions/workflows/go-presubmit.yml)
+
 Setec is a lightweight secrets management service that uses Tailscale for access control.
 
 > [!IMPORTANT]
