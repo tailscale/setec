@@ -5,6 +5,7 @@ package setec
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -132,6 +133,10 @@ type StoreConfig struct {
 	// TimeNow, if set, is a function that reports a Time to be treated as the
 	// current wallclock time.  If nil, time.Now is used.
 	TimeNow func() time.Time
+
+	// BackgroundContext, if non-nil, is a context that is used for background operations
+	// instead of context.Background.
+	BackgroundContext context.Context
 }
 
 func (c StoreConfig) logger() logger.Logf {
@@ -250,8 +255,10 @@ func NewStore(ctx context.Context, cfg StoreConfig) (*Store, error) {
 		}
 	}
 
+	bgCtx := cmp.Or(cfg.BackgroundContext, context.Background())
+
 	// Start a background task to refresh secrets.
-	pctx, cancel := context.WithCancel(context.Background())
+	pctx, cancel := context.WithCancel(bgCtx)
 	s.ctx = pctx
 	s.cancel = cancel
 
