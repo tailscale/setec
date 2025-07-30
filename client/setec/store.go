@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/creachadair/msync/throttle"
 	"github.com/tailscale/setec/types/api"
-	"golang.org/x/sync/singleflight"
 	"tailscale.com/types/logger"
 )
 
@@ -32,7 +32,7 @@ type Store struct {
 	allowLookup bool
 	newTicker   func(time.Duration) Ticker
 	timeNow     func() time.Time
-	single      singleflight.Group
+	single      throttle.Set[string, Secret]
 
 	// Undeclared secrets not accessed in at least this long are eligible to be
 	// purged from the cache. If zero, no expiry is performed.
@@ -290,7 +290,9 @@ func (s *Store) Close() error {
 // mechanism, but a caller may invoke Refresh directly if it wants to check for
 // new secret values at a specific moment.
 func (s *Store) Refresh(ctx context.Context) error {
-	ch := s.single.DoChan("poll", func() (any, error) {
+	// For a refresh, we don't have a specific secret to return so the non-error
+	// value will always be nil.
+	_, err := s.single.Call(ctx, "poll", func(ctx context.Context) (Secret, error) {
 		s.countPolls.Add(1)
 		s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
 		updates := make(map[string]*api.SecretValue)
@@ -303,12 +305,7 @@ func (s *Store) Refresh(ctx context.Context) error {
 		}
 		return nil, nil
 	})
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case res := <-ch:
-		return res.Err
-	}
+	return err
 }
 
 // Secret returns a fetcher for the named secret.
@@ -376,50 +373,32 @@ func (s *Store) LookupSecret(ctx context.Context, name string) (Secret, error) {
 func (s *Store) lookupSecretInternal(ctx context.Context, name string) (Secret, error) {
 	// When lookups are enabled, multiple goroutines may race for the right to
 	// grab and cache a given secret, so singleflight the lookup for each secret
-	// under its own marker. The "lookup:" prefix here ensures we don't collide
-	// with the "poll" label used by periodic updates.
-	//
-	// Note that the winner of the race on the singleflight may time out early,
-	// in which case we want to retry (up to a safety limit) when we discover
-	// the result was due to a context cancellation other than our own.
-	for {
-		v, err, _ := s.single.Do("lookup:"+name, func() (any, error) {
-			// If the winning caller's context doesn't already have a deadline,
-			// impose a safety fallback so requests do not stall forever if the
-			// infrastructure is farkakte.
-			dctx := ctx
-			if _, ok := ctx.Deadline(); !ok {
-				var cancel context.CancelFunc
-				dctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
-				defer cancel()
-			}
+	// under its own marker.
 
-			sv, err := s.client.Get(dctx, name)
-			if err != nil {
-				return nil, fmt.Errorf("lookup %q: %w", name, err)
-			}
-
-			s.active.Lock()
-			defer s.active.Unlock()
-			s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
-			if err := s.flushCacheLocked(); err != nil {
-				s.logf("WARNING: error flushing cache: %v", err)
-			}
-			s.logf("[store] added new undeclared secret %q", name)
-			return s.secretLocked(name), nil
-		})
-		if err == nil {
-			return v.(Secret), nil
-		} else if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-			if ctx.Err() == nil {
-				// This wasn't us timing out, try again.
-				continue
-			}
-		}
-		// Reaching here, either we won the singleflight race and timed out, or
-		// we got a real error from the winner.
-		return nil, err
+	// If the winning caller's context doesn't already have a deadline,
+	// impose a safety fallback so requests do not stall forever if the
+	// infrastructure is farkakte.
+	dctx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		dctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
 	}
+	return s.single.Call(dctx, "lookup:"+name, func(ctx context.Context) (Secret, error) {
+		sv, err := s.client.Get(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("lookup %q: %w", name, err)
+		}
+
+		s.active.Lock()
+		defer s.active.Unlock()
+		s.active.m[name] = &cachedSecret{Secret: sv, LastAccess: s.timeNow().Unix()}
+		if err := s.flushCacheLocked(); err != nil {
+			s.logf("WARNING: error flushing cache: %v", err)
+		}
+		s.logf("[store] added new undeclared secret %q", name)
+		return s.secretLocked(name), nil
+	})
 }
 
 // A Secret is a function that fetches the current active value of a secret.
