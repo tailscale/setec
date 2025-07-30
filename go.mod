@@ -10,11 +10,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.13
 	github.com/creachadair/command v0.1.22
 	github.com/creachadair/flax v0.0.4
-	github.com/creachadair/mds v0.24.1
+	github.com/creachadair/mds v0.25.2
+	github.com/creachadair/msync v0.5.6
 	github.com/google/go-cmp v0.7.0
 	github.com/tink-crypto/tink-go-awskms v0.0.0-20230616072154-ba4f9f22c3e9
 	github.com/tink-crypto/tink-go/v2 v2.1.0
-	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.30.0
 	honnef.co/go/tools v0.6.1
 	tailscale.com v1.81.0-pre.0.20250303195457-5449aba94c51
@@ -96,6 +96,7 @@ require (
 	golang.org/x/exp/typeparams v0.0.0-20240314144324-c7f7c6466f7f // indirect
 	golang.org/x/mod v0.23.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/sync v0.12.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.10.0 // indirect
