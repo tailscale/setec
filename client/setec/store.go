@@ -528,6 +528,7 @@ func (s *Store) snapshotActive() map[string]secretState {
 // If the named secret has expired, the value is nil.
 // Otherwise, the value is a new secret version for that secret.
 func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
+	s.logf("MJF :: context for poll is %[1]T %+[1]v", ctx)
 	var errs []error
 	for name, sv := range s.snapshotActive() {
 		// If the secret has expired, mark it for deletion.

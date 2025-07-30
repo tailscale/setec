@@ -622,3 +622,27 @@ func (c *closeable[T]) Close() error {
 	c.Closed = true
 	return nil
 }
+
+func TestStoreContext(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	bgCtx := context.WithValue(context.Background(), "foo", "bar")
+
+	st, err := setec.NewStore(context.Background(), setec.StoreConfig{
+		Client:            setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+		BackgroundContext: bgCtx,
+		AllowLookup:       true,
+		PollInterval:      1 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	t.Log("OK, store started")
+
+	time.Sleep(2 * time.Second)
+}
