@@ -25,11 +25,11 @@ func (s *Server) periodicBackup(ctx context.Context) {
 			} else {
 				lastWriteGen = gen
 			}
-			select {
-			case <-time.After(time.Minute):
-			case <-ctx.Done():
-				return
-			}
+		}
+		select {
+		case <-time.After(time.Minute):
+		case <-ctx.Done():
+			return
 		}
 	}
 }
