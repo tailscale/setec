@@ -7,11 +7,7 @@
 // ACL policies are provided by tailscale peer capabilities.
 package acl
 
-import (
-	"fmt"
-	"regexp"
-	"strings"
-)
+import "github.com/creachadair/mds/mstr"
 
 // Action is an action on secrets that is subject to access control.
 type Action string
@@ -45,27 +41,7 @@ const (
 type Secret string
 
 // Match reports whether the Secret name pattern matches val.
-func (pat Secret) Match(val string) bool {
-	s := string(pat)
-	if !strings.Contains(s, "*") && s == val {
-		return true
-	}
-	// We want the user to use glob-ish syntax, where '*' is the
-	// equivalent of regexp's '.*'. We also don't want any other
-	// character of the input misinterpreted as a regexp control
-	// character.
-	//
-	// To achieve this, we:
-	//  - split each input string on '*'
-	//  - regexp-quote the resulting parts
-	//  - reassemble the quoted parts around '.*' separators
-	parts := strings.Split(s, "*")
-	for i := range parts {
-		parts[i] = regexp.QuoteMeta(parts[i])
-	}
-	re := regexp.MustCompile(fmt.Sprintf("^%s$", strings.Join(parts, ".*")))
-	return re.MatchString(val)
-}
+func (pat Secret) Match(val string) bool { return mstr.Match(val, string(pat)) }
 
 // Rules is a set of ACLs for access to a secret.
 type Rules []Rule

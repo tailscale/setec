@@ -10,7 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.13
 	github.com/creachadair/command v0.1.22
 	github.com/creachadair/flax v0.0.4
-	github.com/creachadair/mds v0.25.2
+	github.com/creachadair/mds v0.25.4
 	github.com/creachadair/msync v0.5.6
 	github.com/google/go-cmp v0.7.0
 	github.com/tink-crypto/tink-go-awskms v0.0.0-20230616072154-ba4f9f22c3e9
