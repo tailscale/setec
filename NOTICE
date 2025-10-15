@@ -1,0 +1,16 @@
+This software is a fork of setec by Tailscale Inc.
+Original: https://github.com/tailscale/setec
+License: BSD-3-Clause
+
+Setec Copyright (c) 2023 Tailscale Inc & AUTHORS
+Leger modifications Copyright (c) 2025 Leger Labs, Inc.
+
+legerd is a minimal fork of setec that preserves upstream
+compatibility. We regularly merge upstream improvements.
+
+The cmd/legerd directory and all setec packages (client/, server/,
+db/, acl/, audit/, types/) are derived from setec and remain
+under BSD-3-Clause license.
+
+New Leger components (cmd/leger, internal/*, pkg/*) are licensed
+under Apache License 2.0.

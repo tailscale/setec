@@ -1,0 +1,22 @@
+# Leger Configuration
+
+# Daemon connection
+daemon:
+  url: "http://localhost:9090"
+  timeout: 10s
+
+# Storage
+storage:
+  state_dir: "/var/lib/leger"
+  backup_dir: "/var/lib/leger/backups"
+  staged_dir: "/var/lib/leger/staged"
+
+# Tailscale
+tailscale:
+  required: true
+  verify_identity: true
+
+# Logging
+logging:
+  level: "info"
+  format: "text"

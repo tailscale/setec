@@ -1,0 +1,10 @@
+# Environment file for legerd (system service)
+
+# Tailscale hostname for legerd
+# LEGERD_HOSTNAME=legerd
+
+# State directory
+# LEGERD_STATE_DIR=/var/lib/legerd
+
+# Additional options
+# LEGERD_OPTS=""
