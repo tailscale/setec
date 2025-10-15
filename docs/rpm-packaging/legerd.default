@@ -1,0 +1,22 @@
+# Environment configuration for legerd system service
+# Edit this file to customize legerd behavior
+# Changes require: sudo systemctl restart legerd.service
+
+# Additional command-line flags for legerd
+# Examples:
+#   --verbose=1           # Enable verbose logging
+#   --poll-interval=10m   # Change git poll interval
+FLAGS=""
+
+# Git repository URL (can also be set in /etc/leger/config.yaml)
+# LEGER_REPO_URL=""
+
+# Setec configuration
+# LEGER_SETEC_ADDR=""
+# LEGER_SETEC_TOKEN=""
+
+# Log level: debug, info, warn, error
+# LEGER_LOG_LEVEL="info"
+
+# Podman socket path (usually auto-detected)
+# LEGER_PODMAN_SOCKET="/run/podman/podman.sock"

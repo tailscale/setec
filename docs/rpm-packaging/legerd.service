@@ -1,0 +1,50 @@
+[Unit]
+Description=leger Podman Quadlet daemon (User Service)
+Documentation=https://leger.run/docs/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Start the daemon with user-specific paths
+ExecStart=/usr/bin/legerd \
+  --state=%S/leger/legerd.state \
+  --socket=%t/leger/legerd.sock \
+  --config=%E/leger/config.yaml
+
+# Cleanup on stop
+ExecStopPost=/usr/bin/legerd --cleanup
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+# Service type
+Type=simple
+
+# Environment
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+# Allow writes to leger directories
+ReadWritePaths=%S/leger
+ReadWritePaths=%t/leger
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=legerd
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Timeout
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

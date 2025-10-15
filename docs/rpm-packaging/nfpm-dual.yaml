@@ -1,0 +1,147 @@
+# nfpm configuration for leger
+# Packages both the CLI (leger) and daemon (legerd)
+# Based on Tailscale's dual-binary approach
+
+name: "leger"
+arch: "${RPM_ARCH}"
+platform: "linux"
+version: "${VERSION}"
+release: 1
+section: "default"
+priority: "extra"
+
+# Package metadata
+maintainer: "leger Team <packages@leger.run>"
+description: |
+  leger - Podman Quadlet Manager
+  
+  Manages Podman Quadlets from Git repositories with secure
+  secret management via Setec integration.
+  
+  This package includes:
+  - leger: Interactive CLI for managing quadlets
+  - legerd: Background daemon for continuous sync
+  
+  Features:
+  - Declarative Quadlet management from Git
+  - Automatic updates with rollback capability
+  - Secure secrets via Setec
+  - Support for both user and system services
+
+homepage: "https://leger.run"
+license: "MIT"
+vendor: "leger Project"
+
+# File contents
+contents:
+  # CLI binary
+  - src: "./${CLI_BINARY}"
+    dst: "/usr/bin/leger"
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  # Daemon binary
+  - src: "./${DAEMON_BINARY}"
+    dst: "/usr/bin/legerd"
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  # Systemd units - user scope
+  - src: "./systemd/legerd.service"
+    dst: "/usr/lib/systemd/user/legerd.service"
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  
+  # Systemd units - system scope
+  - src: "./systemd/legerd@.service"
+    dst: "/usr/lib/systemd/system/legerd.service"
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  
+  # Environment file for system service
+  - src: "./systemd/legerd.default"
+    dst: "/etc/default/legerd"
+    type: config
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  
+  # Default configuration (marked as config file)
+  - src: "./config/leger.yaml"
+    dst: "/etc/leger/config.yaml"
+    type: config
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  
+  # Data directories
+  - dst: "/var/lib/leger"
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  - dst: "/var/lib/leger/staged"
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  - dst: "/var/lib/leger/backups"
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  - dst: "/var/lib/leger/manifests"
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  
+  # Runtime directory (for socket)
+  - dst: "/run/leger"
+    type: dir
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+
+# RPM-specific scriptlets
+scripts:
+  postinstall: "./release/rpm/postinst.sh"
+  preremove: "./release/rpm/prerm.sh"
+  postremove: "./release/rpm/postrm.sh"
+
+# Package dependencies
+depends:
+  - "podman >= 4.0"
+
+# Recommended packages (not required)
+recommends:
+  - "git"
+  - "systemd"
+
+# RPM-specific configuration
+rpm:
+  group: "System Environment/Daemons"
+  summary: "Podman Quadlet manager with Git and Setec integration"
+  compression: "xz"
+  
+  # Package signing (if configured)
+  signature:
+    key_file: "${GPG_KEY_FILE}"

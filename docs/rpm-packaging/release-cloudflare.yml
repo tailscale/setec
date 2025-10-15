@@ -1,0 +1,447 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  # Cloudflare R2 bucket for RPM repository
+  R2_BUCKET: leger-packages
+  R2_PUBLIC_URL: https://pkgs.leger.run
+
+jobs:
+  build:
+    name: Build RPM (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            goarch: amd64
+            rpm_arch: x86_64
+          - arch: arm64
+            goarch: arm64
+            rpm_arch: aarch64
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git describe
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION_SHORT="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "version_short=${VERSION_SHORT}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION} (${VERSION_SHORT})"
+      
+      - name: Install dependencies
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest
+          # For createrepo_c (RPM repository metadata)
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c
+      
+      - name: Build binaries
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT="${{ github.sha }}"
+          BUILD_DATE="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          
+          echo "Building leger and legerd ${VERSION} for ${GOOS}/${GOARCH}"
+          
+          # Build CLI binary
+          go build -trimpath \
+            -ldflags="-X github.com/yourname/leger/version.Version=${VERSION} \
+                      -X github.com/yourname/leger/version.Commit=${COMMIT} \
+                      -X github.com/yourname/leger/version.BuildDate=${BUILD_DATE} \
+                      -w -s" \
+            -o leger-${{ matrix.arch }} \
+            ./cmd/leger
+          
+          # Build daemon binary
+          go build -trimpath \
+            -ldflags="-X github.com/yourname/leger/version.Version=${VERSION} \
+                      -X github.com/yourname/leger/version.Commit=${COMMIT} \
+                      -X github.com/yourname/leger/version.BuildDate=${BUILD_DATE} \
+                      -w -s" \
+            -o legerd-${{ matrix.arch }} \
+            ./cmd/legerd
+          
+          # Verify binaries
+          file leger-${{ matrix.arch }} legerd-${{ matrix.arch }}
+          ./leger-${{ matrix.arch }} --version || true
+          ./legerd-${{ matrix.arch }} --version || true
+      
+      - name: Create RPM
+        env:
+          VERSION: ${{ steps.version.outputs.version_short }}
+          ARCH: ${{ matrix.arch }}
+          RPM_ARCH: ${{ matrix.rpm_arch }}
+        run: |
+          echo "Creating RPM package: leger-${VERSION}-1.${RPM_ARCH}.rpm"
+          
+          # Substitute variables in nfpm.yaml
+          VERSION="${VERSION}" ARCH="${ARCH}" RPM_ARCH="${RPM_ARCH}" \
+            CLI_BINARY="leger-${ARCH}" DAEMON_BINARY="legerd-${ARCH}" \
+            envsubst < nfpm.yaml > nfpm-build.yaml
+          
+          # Build RPM
+          nfpm pkg --packager rpm -f nfpm-build.yaml
+          
+          # Rename to use standard RPM architecture names
+          if [ -f "leger-${VERSION}-1.${ARCH}.rpm" ]; then
+            mv "leger-${VERSION}-1.${ARCH}.rpm" "leger-${VERSION}-1.${RPM_ARCH}.rpm"
+          fi
+          
+          # List generated files
+          ls -lh *.rpm
+          
+          # Verify RPM
+          rpm -qilp *.rpm || true
+          rpm --checksig *.rpm || true
+      
+      - name: Upload RPM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm-${{ matrix.arch }}
+          path: "*.rpm"
+          if-no-files-found: error
+  
+  sign:
+    name: Sign RPM Packages
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      
+      - name: Import GPG key
+        if: vars.ENABLE_SIGNING == 'true'
+        run: |
+          echo "${{ secrets.GPG_PRIVATE_KEY }}" | gpg --batch --import
+          gpg --list-keys
+      
+      - name: Sign RPMs
+        if: vars.ENABLE_SIGNING == 'true'
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "allow-loopback-pinentry" > ~/.gnupg/gpg-agent.conf
+          gpg-connect-agent reloadagent /bye
+          
+          for rpm in artifacts/rpm-*/*.rpm; do
+            echo "Signing $rpm"
+            echo "$GPG_PASSPHRASE" | \
+              rpmsign --addsign \
+              --define="_gpg_name packages@leger.run" \
+              --define="__gpg_sign_cmd %{__gpg} gpg --batch --pinentry-mode loopback --passphrase-fd 3 --no-verbose --no-armor --no-secmem-warning -u '%{_gpg_name}' -sbo %{__signature_filename} %{__plaintext_filename}" \
+              "$rpm" 3<&0
+          done
+      
+      - name: Upload signed RPMs
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-rpms
+          path: artifacts/rpm-*/*.rpm
+          overwrite: true
+  
+  publish-repo:
+    name: Publish to RPM Repository
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Download signed RPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-rpms
+          path: rpms
+      
+      - name: Install repository tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y createrepo-c
+      
+      - name: Download existing repository (if exists)
+        continue-on-error: true
+        run: |
+          mkdir -p repo/fedora/42
+          # Download existing repository metadata
+          curl -f https://pkgs.leger.run/fedora/42/x86_64/repodata/repomd.xml -o /tmp/test.xml || echo "No existing repo"
+      
+      - name: Organize RPMs by architecture
+        run: |
+          mkdir -p repo/fedora/42/x86_64
+          mkdir -p repo/fedora/42/aarch64
+          mkdir -p repo/fedora/42/SRPMS
+          
+          # Move RPMs to appropriate directories
+          find rpms -name "*.x86_64.rpm" -exec cp {} repo/fedora/42/x86_64/ \;
+          find rpms -name "*.aarch64.rpm" -exec cp {} repo/fedora/42/aarch64/ \;
+          
+          # List what we're publishing
+          echo "=== x86_64 packages ==="
+          ls -lh repo/fedora/42/x86_64/
+          echo "=== aarch64 packages ==="
+          ls -lh repo/fedora/42/aarch64/
+      
+      - name: Create repository metadata
+        run: |
+          # Create metadata for each architecture
+          for arch in x86_64 aarch64; do
+            echo "Creating repository metadata for $arch"
+            createrepo_c --update \
+              --simple-md-filenames \
+              --revision "${{ github.sha }}" \
+              repo/fedora/42/$arch/
+          done
+      
+      - name: Create repository configuration file
+        run: |
+          cat > repo/leger.repo <<EOF
+          [leger]
+          name=leger - Podman Quadlet Manager
+          baseurl=https://pkgs.leger.run/fedora/\$releasever/\$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://pkgs.leger.run/RPM-GPG-KEY-leger
+          EOF
+          
+          # Copy GPG public key if it exists in repo
+          if [ -f RPM-GPG-KEY-leger ]; then
+            cp RPM-GPG-KEY-leger repo/
+          fi
+      
+      - name: Create index.html
+        run: |
+          cat > repo/index.html <<'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>leger Package Repository</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 2rem;
+                line-height: 1.6;
+              }
+              pre {
+                background: #f5f5f5;
+                padding: 1rem;
+                border-radius: 4px;
+                overflow-x: auto;
+              }
+              code {
+                background: #f5f5f5;
+                padding: 0.2rem 0.4rem;
+                border-radius: 3px;
+              }
+              h1 { color: #333; }
+              h2 { color: #666; margin-top: 2rem; }
+            </style>
+          </head>
+          <body>
+            <h1>leger Package Repository</h1>
+            <p>Official RPM repository for leger - Podman Quadlet Manager</p>
+            
+            <h2>Quick Install (Fedora 42+)</h2>
+            <pre><code>sudo dnf config-manager --add-repo https://pkgs.leger.run/leger.repo
+          sudo dnf install leger</code></pre>
+            
+            <h2>Manual Setup</h2>
+            <p>Create <code>/etc/yum.repos.d/leger.repo</code>:</p>
+            <pre><code>[leger]
+          name=leger - Podman Quadlet Manager
+          baseurl=https://pkgs.leger.run/fedora/$releasever/$basearch
+          enabled=1
+          gpgcheck=1
+          repo_gpgcheck=1
+          gpgkey=https://pkgs.leger.run/RPM-GPG-KEY-leger</code></pre>
+            
+            <h2>Supported Platforms</h2>
+            <ul>
+              <li>Fedora 42+</li>
+              <li>Architectures: x86_64, aarch64</li>
+            </ul>
+            
+            <h2>Package Contents</h2>
+            <ul>
+              <li><code>/usr/bin/leger</code> - CLI tool</li>
+              <li><code>/usr/bin/legerd</code> - Daemon</li>
+              <li><code>/etc/leger/config.yaml</code> - Configuration</li>
+              <li>Systemd services (user and system)</li>
+            </ul>
+            
+            <h2>Documentation</h2>
+            <p>Visit <a href="https://github.com/yourname/leger">github.com/yourname/leger</a> for complete documentation.</p>
+          </body>
+          </html>
+          EOF
+      
+      - name: Deploy to Cloudflare R2
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: r2 object put ${{ env.R2_BUCKET }} --recursive --directory repo
+      
+      - name: Purge Cloudflare Cache
+        run: |
+          curl -X POST "https://api.cloudflare.com/client/v4/zones/${{ secrets.CLOUDFLARE_ZONE_ID }}/purge_cache" \
+            -H "Authorization: Bearer ${{ secrets.CLOUDFLARE_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            --data '{"purge_everything":true}'
+  
+  release:
+    name: Create GitHub Release
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+      
+      - name: Download signed RPMs
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-rpms
+          path: artifacts
+      
+      - name: Generate release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          ## Installation
+          
+          ### Quick Install (Recommended)
+          
+          ```bash
+          sudo dnf config-manager --add-repo https://pkgs.leger.run/leger.repo
+          sudo dnf install leger
+          ```
+          
+          ### Manual Download
+          
+          Download the appropriate RPM for your architecture:
+          
+          - **x86_64 (Intel/AMD)**: `leger-*-x86_64.rpm`
+          - **aarch64 (ARM64)**: `leger-*-aarch64.rpm`
+          
+          Install with:
+          ```bash
+          sudo dnf install ./leger-*.rpm
+          ```
+          
+          ## Configuration
+          
+          1. Edit the configuration file:
+             ```bash
+             sudo vim /etc/leger/config.yaml
+             ```
+          
+          2. Start the daemon:
+             
+             For user service:
+             ```bash
+             systemctl --user enable --now legerd.service
+             ```
+             
+             For system service:
+             ```bash
+             sudo systemctl enable --now legerd.service
+             ```
+          
+          ## Verification
+          
+          ```bash
+          leger --version
+          systemctl --user status legerd.service
+          ```
+          
+          ## Package Repository
+          
+          This release is also available via our package repository at https://pkgs.leger.run
+          
+          ## What's New
+          
+          See [CHANGELOG.md](CHANGELOG.md) for detailed changes.
+          EOF
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: Release ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: |
+            artifacts/*.rpm
+          body_path: release-notes.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        run: |
+          echo "## Release Created! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Version: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Package Repository" >> $GITHUB_STEP_SUMMARY
+          echo "https://pkgs.leger.run" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          find artifacts -type f -name "*.rpm" | while read rpm; do
+            echo "- $(basename $rpm)" >> $GITHUB_STEP_SUMMARY
+          done
