@@ -164,14 +164,14 @@ func runServer(env *command.Env) error {
 	var kek tink.AEAD
 	if serverArgs.Dev {
 		if serverArgs.StateDir == "" {
-			const devState = "setec-dev.state"
+			const devState = "legerd-dev.state"
 			if err := os.MkdirAll(devState, 0700); err != nil {
 				return fmt.Errorf("creating dev state dir %q: %w", devState, err)
 			}
 			serverArgs.StateDir = devState
 		}
 		if serverArgs.Hostname == "" {
-			serverArgs.Hostname = "setec-dev"
+			serverArgs.Hostname = "legerd-dev"
 		}
 		if serverArgs.KMSKeyName == "" {
 			kek = &testutil.DummyAEAD{

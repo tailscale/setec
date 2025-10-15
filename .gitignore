@@ -1,1 +1,36 @@
+# Binaries
+leger
+legerd
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.txt
+
+# Build artifacts
+dist/
+*.rpm
+*.deb
+*.tar.gz
+
+# State directories
+*.state/
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
 .envrc

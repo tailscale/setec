@@ -1,0 +1,28 @@
+[Unit]
+Description=Leger Secrets Daemon (System)
+Documentation=https://docs.leger.run
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+User=legerd
+Group=legerd
+ExecStart=/usr/bin/legerd server
+EnvironmentFile=-/etc/default/legerd
+Restart=on-failure
+RestartSec=5s
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/run/legerd /var/lib/legerd
+
+# Directories
+RuntimeDirectory=legerd
+StateDirectory=legerd
+
+[Install]
+WantedBy=multi-user.target
