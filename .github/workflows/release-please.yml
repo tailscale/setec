@@ -1,0 +1,55 @@
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          # Release Please will create a PR with version bumps and changelog
+          # When that PR is merged, it creates a GitHub Release
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Optional: Build and upload binaries when release is created
+      - name: Checkout code
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      
+      - name: Build binaries
+        if: ${{ steps.release.outputs.release_created }}
+        run: |
+          VERSION=${{ steps.release.outputs.tag_name }}
+          make build
+          
+          # Create archives
+          tar -czf leger-${VERSION}-linux-amd64.tar.gz leger legerd README.md LICENSE NOTICE
+          
+          # Generate checksums
+          sha256sum leger-${VERSION}-linux-amd64.tar.gz > checksums.txt
+      
+      - name: Upload release artifacts
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ steps.release.outputs.tag_name }} \
+            leger-${{ steps.release.outputs.tag_name }}-linux-amd64.tar.gz \
+            checksums.txt

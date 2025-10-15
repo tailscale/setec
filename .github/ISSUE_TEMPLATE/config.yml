@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/leger-labs/leger/discussions
+    about: For questions, ideas, and general discussion
+  - name: 📖 Documentation
+    url: https://docs.leger.run
+    about: Read the documentation

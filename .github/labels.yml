@@ -1,0 +1,153 @@
+# Conventional Commit Type Labels
+- name: "type:feat"
+  color: "0e8a16"
+  description: "New feature or enhancement"
+
+- name: "type:fix"
+  color: "d73a4a"
+  description: "Bug fix"
+
+- name: "type:docs"
+  color: "0075ca"
+  description: "Documentation changes"
+
+- name: "type:chore"
+  color: "fef2c0"
+  description: "Maintenance and chores"
+
+- name: "type:test"
+  color: "b60205"
+  description: "Testing improvements"
+
+- name: "type:refactor"
+  color: "fbca04"
+  description: "Code refactoring"
+
+- name: "type:ci"
+  color: "5319e7"
+  description: "CI/CD changes"
+
+- name: "type:perf"
+  color: "ee9a00"
+  description: "Performance improvements"
+
+- name: "type:revert"
+  color: "e99695"
+  description: "Revert previous changes"
+
+- name: "type:deps"
+  color: "0366d6"
+  description: "Dependency updates"
+
+# Area Labels (Component-based)
+- name: "area:cli"
+  color: "c2e0c6"
+  description: "Leger CLI (cmd/leger)"
+
+- name: "area:daemon"
+  color: "c2e0c6"
+  description: "Legerd daemon (cmd/legerd)"
+
+- name: "area:internal"
+  color: "c2e0c6"
+  description: "Internal packages"
+
+- name: "area:docs"
+  color: "c2e0c6"
+  description: "Documentation"
+
+- name: "area:ci"
+  color: "c2e0c6"
+  description: "CI/CD infrastructure"
+
+- name: "area:rpm"
+  color: "c2e0c6"
+  description: "RPM packaging"
+
+- name: "area:systemd"
+  color: "c2e0c6"
+  description: "Systemd integration"
+
+- name: "area:config"
+  color: "c2e0c6"
+  description: "Configuration management"
+
+# Priority Labels
+- name: "priority:critical"
+  color: "b60205"
+  description: "Critical priority"
+
+- name: "priority:high"
+  color: "d93f0b"
+  description: "High priority"
+
+- name: "priority:medium"
+  color: "fbca04"
+  description: "Medium priority"
+
+- name: "priority:low"
+  color: "0e8a16"
+  description: "Low priority"
+
+# Status Labels
+- name: "status:blocked"
+  color: "d73a4a"
+  description: "Blocked by another issue"
+
+- name: "status:in-progress"
+  color: "0e8a16"
+  description: "Currently being worked on"
+
+- name: "status:needs-review"
+  color: "fbca04"
+  description: "Needs review"
+
+- name: "status:on-hold"
+  color: "fef2c0"
+  description: "On hold"
+
+# Special Labels
+- name: "breaking-change"
+  color: "b60205"
+  description: "Breaking API change (triggers major version)"
+
+- name: "good-first-issue"
+  color: "7057ff"
+  description: "Good for newcomers"
+
+- name: "help-wanted"
+  color: "008672"
+  description: "Extra attention needed"
+
+- name: "question"
+  color: "d876e3"
+  description: "Further information requested"
+
+- name: "wontfix"
+  color: "ffffff"
+  description: "This will not be worked on"
+
+- name: "duplicate"
+  color: "cfd3d7"
+  description: "Duplicate issue"
+
+- name: "invalid"
+  color: "e4e669"
+  description: "Invalid issue"
+
+# Milestone-related
+- name: "milestone:0.1.x"
+  color: "1d76db"
+  description: "MVP - Local deployment foundation"
+
+- name: "milestone:0.2.x"
+  color: "1d76db"
+  description: "Public repo setup"
+
+- name: "milestone:0.3.x"
+  color: "1d76db"
+  description: "Community readiness"
+
+- name: "milestone:1.0.0"
+  color: "1d76db"
+  description: "Production release"

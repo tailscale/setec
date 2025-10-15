@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "leger",
+      "changelog-sections": [
+        { "type": "feat", "section": "Features", "hidden": false },
+        { "type": "fix", "section": "Bug Fixes", "hidden": false },
+        { "type": "perf", "section": "Performance", "hidden": false },
+        { "type": "deps", "section": "Dependencies", "hidden": false },
+        { "type": "revert", "section": "Reverts", "hidden": false },
+        { "type": "docs", "section": "Documentation", "hidden": false },
+        { "type": "style", "section": "Styles", "hidden": true },
+        { "type": "chore", "section": "Miscellaneous", "hidden": true },
+        { "type": "refactor", "section": "Code Refactoring", "hidden": true },
+        { "type": "test", "section": "Tests", "hidden": true },
+        { "type": "build", "section": "Build System", "hidden": true },
+        { "type": "ci", "section": "Continuous Integration", "hidden": true }
+      ],
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "package.json",
+          "jsonpath": "$.version"
+        }
+      ],
+      "include-component-in-tag": false,
+      "include-v-in-tag": true,
+      "pull-request-title-pattern": "chore: release v${version}",
+      "draft": false,
+      "prerelease": false
+    }
+  },
+  "bootstrap-sha": "8825d09f8ec9e57dfa5e4d37e4c1d75e3a3c5d4a",
+  "release-search-depth": 100,
+  "commit-search-depth": 500,
+  "sequential-calls": true
+}

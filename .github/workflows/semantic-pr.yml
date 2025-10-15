@@ -1,0 +1,91 @@
+name: Semantic PR
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: write
+  statuses: write
+
+jobs:
+  validate:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Types of commits allowed
+          types: |
+            feat
+            fix
+            docs
+            chore
+            test
+            refactor
+            ci
+            perf
+            revert
+            deps
+          
+          # Scopes (optional but recommended)
+          scopes: |
+            cli
+            daemon
+            rpm
+            docs
+            ci
+            internal
+            systemd
+            config
+          
+          # Don't require a scope (optional)
+          requireScope: false
+          
+          # Allow uppercase in subject
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            didn't match the configured pattern. Please ensure that the subject
+            doesn't start with an uppercase character.
+          
+          # Validate that issues are referenced
+          # This is handled by branch naming convention instead
+          
+          # Add labels based on PR type
+          # This requires write permissions
+          headerPattern: '^(\w+)(?:\(([^\)]*)\))?!?: (.+)$'
+          headerPatternCorrespondence: type, scope, subject
+      
+      - name: Add type label
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const typeMatch = title.match(/^(\w+)(?:\(([^\)]*)\))?:/);
+            
+            if (typeMatch) {
+              const type = typeMatch[1];
+              const scope = typeMatch[2];
+              
+              // Add type label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                labels: [`type:${type}`]
+              });
+              
+              // Add scope label if present
+              if (scope) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  labels: [`area:${scope}`]
+                });
+              }
+            }
