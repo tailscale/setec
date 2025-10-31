@@ -153,6 +153,7 @@ var serverArgs struct {
 	BackupBucket       string `flag:"backup-bucket,Name of AWS S3 bucket to use for database backups"`
 	BackupBucketRegion string `flag:"backup-bucket-region,AWS region of the backup S3 bucket"`
 	BackupRole         string `flag:"backup-role,Name of AWS IAM role to assume to write backups"`
+	LoginServer        string `flag:"login-server,URL of control server to use for tsnet"`
 	Dev                bool   `flag:"dev,Run in developer mode"`
 }
 
@@ -207,8 +208,9 @@ func runServer(env *command.Env) error {
 	}
 
 	s := &tsnet.Server{
-		Dir:      filepath.Join(serverArgs.StateDir, "tsnet"),
-		Hostname: serverArgs.Hostname,
+		Dir:        filepath.Join(serverArgs.StateDir, "tsnet"),
+		Hostname:   serverArgs.Hostname,
+		ControlURL: serverArgs.LoginServer,
 	}
 
 	lc, err := s.LocalClient()
