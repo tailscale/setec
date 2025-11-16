@@ -31,7 +31,7 @@ import (
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/types/api"
-	"github.com/tink-crypto/tink-go-awskms/integration/awskms"
+	"github.com/tink-crypto/tink-go-awskms/v2/integration/awskms"
 	"github.com/tink-crypto/tink-go/v2/testutil"
 	"github.com/tink-crypto/tink-go/v2/tink"
 	"golang.org/x/term"
