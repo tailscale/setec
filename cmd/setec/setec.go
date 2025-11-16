@@ -147,13 +147,13 @@ generate the token, then re-run appending the provided value.`,
 }
 
 var serverArgs struct {
-	StateDir           string `flag:"state-dir,Server state directory"`
-	Hostname           string `flag:"hostname,Tailscale hostname to use"`
-	KMSKeyName         string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
-	BackupBucket       string `flag:"backup-bucket,Name of AWS S3 bucket to use for database backups"`
-	BackupBucketRegion string `flag:"backup-bucket-region,AWS region of the backup S3 bucket"`
-	BackupRole         string `flag:"backup-role,Name of AWS IAM role to assume to write backups"`
-	Dev                bool   `flag:"dev,Run in developer mode"`
+	StateDir           string `flag:"state-dir,default='$STATE_DIR',Server state directory"`
+	Hostname           string `flag:"hostname,default='$HOSTNAME',Tailscale hostname to use"`
+	KMSKeyName         string `flag:"kms-key-name,default='$KMS_KEY_NAME',Name of KMS key to use for database encryption"`
+	BackupBucket       string `flag:"backup-bucket,default='$BACKUP_BUCKET',Name of AWS S3 bucket to use for database backups"`
+	BackupBucketRegion string `flag:"backup-bucket-region,default='$BACKUP_BUCKET_REGION',AWS region of the backup S3 bucket"`
+	BackupRole         string `flag:"backup-role,default='$BACKUP_ROLE',Name of AWS IAM role to assume to write backups"`
+	Dev                bool   `flag:"dev,default='$DEV',Run in developer mode"`
 }
 
 var clientArgs struct {
@@ -161,6 +161,24 @@ var clientArgs struct {
 }
 
 func runServer(env *command.Env) error {
+	// If KMSKeyName is a filepath, read the file contents and use that as the key name. This allows users to specify the KMS key name via a file, which can be useful in some deployment scenarios.
+	if serverArgs.KMSKeyName != "" {
+		if data, err := os.ReadFile(serverArgs.KMSKeyName); err == nil {
+			serverArgs.KMSKeyName = strings.TrimSpace(string(data))
+		}
+	}
+	// Similarly, if AWS_ACCESS_KEY_ID_PATH or AWS_SECRET_ACCESS_KEY_PATH are set, read the file contents and set the corresponding environment variables. This allows users to specify AWS credentials via files, which can be useful in some deployment scenarios.
+	if path := os.Getenv("AWS_ACCESS_KEY_ID_PATH"); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			os.Setenv("AWS_ACCESS_KEY_ID", strings.TrimSpace(string(data)))
+		}
+	}
+	if path := os.Getenv("AWS_SECRET_ACCESS_KEY_PATH"); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			os.Setenv("AWS_SECRET_ACCESS_KEY", strings.TrimSpace(string(data)))
+		}
+	}
+
 	var kek tink.AEAD
 	if serverArgs.Dev {
 		if serverArgs.StateDir == "" {
