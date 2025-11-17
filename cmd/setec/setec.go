@@ -167,6 +167,12 @@ func runServer(env *command.Env) error {
 			serverArgs.KMSKeyName = strings.TrimSpace(string(data))
 		}
 	}
+	// Similarly, if TS_AUTHKEY is set, read the file contents and set the environment variable. This allows users to specify the Tailscale auth key via a file, which can be useful in some deployment scenarios.
+	if path := os.Getenv("TS_AUTHKEY_PATH"); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			os.Setenv("TS_AUTHKEY", strings.TrimSpace(string(data)))
+		}
+	}
 	// Similarly, if AWS_ACCESS_KEY_ID_PATH or AWS_SECRET_ACCESS_KEY_PATH are set, read the file contents and set the corresponding environment variables. This allows users to specify AWS credentials via files, which can be useful in some deployment scenarios.
 	if path := os.Getenv("AWS_ACCESS_KEY_ID_PATH"); path != "" {
 		if data, err := os.ReadFile(path); err == nil {
