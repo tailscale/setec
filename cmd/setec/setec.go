@@ -65,7 +65,21 @@ the node on the tailnet.
 With the --dev flag, the server runs with a dummy KMS. This mode is intended
 for debugging and is NOT SAFE for production use.
 
-Otherwise you must provide a --kms-key-name to use to encrypt the database.`,
+Otherwise you must provide a --kms-key-name to use to encrypt the database.
+
+Most of the settings can be set via environment variables as well as flags.
+
+   --------------------------------------------------------------------
+   Flag                    Variable                   Format    Default
+   --------------------------------------------------------------------
+    --state-dir            SETEC_DIR                  path      (required)
+    --hostname             SETEC_HOSTNAME             string    (required)
+    --kms-key-name         SETEC_KMS_KEY_NAME         string    (required unless --dev)
+    --backup-bucket        SETEC_BACKUP_BUCKET        string 	(optional)
+	--backup-bucket-region SETEC_BACKUP_BUCKET_REGION string 	(optional)
+	--backup-role          SETEC_BACKUP_ROLE          string 	(optional)
+    --dev                  SETEC_DEV                  bool      false
+`,
 
 				SetFlags: command.Flags(flax.MustBind, &serverArgs),
 				Run:      command.Adapt(runServer),
@@ -147,13 +161,13 @@ generate the token, then re-run appending the provided value.`,
 }
 
 var serverArgs struct {
-	StateDir           string `flag:"state-dir,default='$STATE_DIR',Server state directory"`
-	Hostname           string `flag:"hostname,default='$HOSTNAME',Tailscale hostname to use"`
-	KMSKeyName         string `flag:"kms-key-name,default='$KMS_KEY_NAME',Name of KMS key to use for database encryption"`
-	BackupBucket       string `flag:"backup-bucket,default='$BACKUP_BUCKET',Name of AWS S3 bucket to use for database backups"`
-	BackupBucketRegion string `flag:"backup-bucket-region,default='$BACKUP_BUCKET_REGION',AWS region of the backup S3 bucket"`
-	BackupRole         string `flag:"backup-role,default='$BACKUP_ROLE',Name of AWS IAM role to assume to write backups"`
-	Dev                bool   `flag:"dev,default='$DEV',Run in developer mode"`
+	StateDir           string `flag:"state-dir,default='$SETEC_STATE_DIR',Server state directory"`
+	Hostname           string `flag:"hostname,default='$SETEC_HOSTNAME',Tailscale hostname to use"`
+	KMSKeyName         string `flag:"kms-key-name,default='$SETEC_KMS_KEY_NAME',Name of KMS key to use for database encryption"`
+	BackupBucket       string `flag:"backup-bucket,default='$SETEC_BACKUP_BUCKET',Name of AWS S3 bucket to use for database backups"`
+	BackupBucketRegion string `flag:"backup-bucket-region,default='$SETEC_BACKUP_BUCKET_REGION',AWS region of the backup S3 bucket"`
+	BackupRole         string `flag:"backup-role,default='$SETEC_BACKUP_ROLE',Name of AWS IAM role to assume to write backups"`
+	Dev                bool   `flag:"dev,default='$SETEC_DEV',Run in developer mode"`
 }
 
 var clientArgs struct {
@@ -161,30 +175,6 @@ var clientArgs struct {
 }
 
 func runServer(env *command.Env) error {
-	// If KMSKeyName is a filepath, read the file contents and use that as the key name. This allows users to specify the KMS key name via a file, which can be useful in some deployment scenarios.
-	if serverArgs.KMSKeyName != "" {
-		if data, err := os.ReadFile(serverArgs.KMSKeyName); err == nil {
-			serverArgs.KMSKeyName = strings.TrimSpace(string(data))
-		}
-	}
-	// Similarly, if TS_AUTHKEY is set, read the file contents and set the environment variable. This allows users to specify the Tailscale auth key via a file, which can be useful in some deployment scenarios.
-	if path := os.Getenv("TS_AUTHKEY_PATH"); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			os.Setenv("TS_AUTHKEY", strings.TrimSpace(string(data)))
-		}
-	}
-	// Similarly, if AWS_ACCESS_KEY_ID_PATH or AWS_SECRET_ACCESS_KEY_PATH are set, read the file contents and set the corresponding environment variables. This allows users to specify AWS credentials via files, which can be useful in some deployment scenarios.
-	if path := os.Getenv("AWS_ACCESS_KEY_ID_PATH"); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			os.Setenv("AWS_ACCESS_KEY_ID", strings.TrimSpace(string(data)))
-		}
-	}
-	if path := os.Getenv("AWS_SECRET_ACCESS_KEY_PATH"); path != "" {
-		if data, err := os.ReadFile(path); err == nil {
-			os.Setenv("AWS_SECRET_ACCESS_KEY", strings.TrimSpace(string(data)))
-		}
-	}
-
 	var kek tink.AEAD
 	if serverArgs.Dev {
 		if serverArgs.StateDir == "" {
