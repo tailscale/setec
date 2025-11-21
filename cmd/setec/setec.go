@@ -161,13 +161,13 @@ generate the token, then re-run appending the provided value.`,
 }
 
 var serverArgs struct {
-	StateDir           string `flag:"state-dir,default='$SETEC_STATE_DIR',Server state directory"`
-	Hostname           string `flag:"hostname,default='$SETEC_HOSTNAME',Tailscale hostname to use"`
-	KMSKeyName         string `flag:"kms-key-name,default='$SETEC_KMS_KEY_NAME',Name of KMS key to use for database encryption"`
-	BackupBucket       string `flag:"backup-bucket,default='$SETEC_BACKUP_BUCKET',Name of AWS S3 bucket to use for database backups"`
-	BackupBucketRegion string `flag:"backup-bucket-region,default='$SETEC_BACKUP_BUCKET_REGION',AWS region of the backup S3 bucket"`
-	BackupRole         string `flag:"backup-role,default='$SETEC_BACKUP_ROLE',Name of AWS IAM role to assume to write backups"`
-	Dev                bool   `flag:"dev,default='$SETEC_DEV',Run in developer mode"`
+	StateDir           string `flag:"state-dir,default=$SETEC_STATE_DIR,Server state directory"`
+	Hostname           string `flag:"hostname,default=$SETEC_HOSTNAME,Tailscale hostname to use"`
+	KMSKeyName         string `flag:"kms-key-name,default=$SETEC_KMS_KEY_NAME,Name of KMS key to use for database encryption"`
+	BackupBucket       string `flag:"backup-bucket,default=$SETEC_BACKUP_BUCKET,Name of AWS S3 bucket to use for database backups"`
+	BackupBucketRegion string `flag:"backup-bucket-region,default=$SETEC_BACKUP_BUCKET_REGION,AWS region of the backup S3 bucket"`
+	BackupRole         string `flag:"backup-role,default=$SETEC_BACKUP_ROLE,Name of AWS IAM role to assume to write backups"`
+	Dev                bool   `flag:"dev,default=$SETEC_DEV,Run in developer mode"`
 }
 
 var clientArgs struct {
