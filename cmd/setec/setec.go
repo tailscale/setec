@@ -65,7 +65,20 @@ the node on the tailnet.
 With the --dev flag, the server runs with a dummy KMS. This mode is intended
 for debugging and is NOT SAFE for production use.
 
-Otherwise you must provide a --kms-key-name to use to encrypt the database.`,
+Otherwise you must provide a --kms-key-name to use to encrypt the database.
+
+Most of the settings can be set via environment variables as well as flags.
+
+   --------------------------------------------------------------------
+   Flag                    Variable                   Format    Default
+   --------------------------------------------------------------------
+    --state-dir            SETEC_DIR                  path      (required)
+    --hostname             SETEC_HOSTNAME             string    (required)
+    --kms-key-name         SETEC_KMS_KEY_NAME         string    (required unless --dev)
+    --backup-bucket        SETEC_BACKUP_BUCKET        string 	(optional)
+	--backup-bucket-region SETEC_BACKUP_BUCKET_REGION string 	(optional)
+	--backup-role          SETEC_BACKUP_ROLE          string 	(optional)
+`,
 
 				SetFlags: command.Flags(flax.MustBind, &serverArgs),
 				Run:      command.Adapt(runServer),
@@ -147,12 +160,12 @@ generate the token, then re-run appending the provided value.`,
 }
 
 var serverArgs struct {
-	StateDir           string `flag:"state-dir,Server state directory"`
-	Hostname           string `flag:"hostname,Tailscale hostname to use"`
-	KMSKeyName         string `flag:"kms-key-name,Name of KMS key to use for database encryption"`
-	BackupBucket       string `flag:"backup-bucket,Name of AWS S3 bucket to use for database backups"`
-	BackupBucketRegion string `flag:"backup-bucket-region,AWS region of the backup S3 bucket"`
-	BackupRole         string `flag:"backup-role,Name of AWS IAM role to assume to write backups"`
+	StateDir           string `flag:"state-dir,default=$SETEC_STATE_DIR,Server state directory"`
+	Hostname           string `flag:"hostname,default=$SETEC_HOSTNAME,Tailscale hostname to use"`
+	KMSKeyName         string `flag:"kms-key-name,default=$SETEC_KMS_KEY_NAME,Name of KMS key to use for database encryption"`
+	BackupBucket       string `flag:"backup-bucket,default=$SETEC_BACKUP_BUCKET,Name of AWS S3 bucket to use for database backups"`
+	BackupBucketRegion string `flag:"backup-bucket-region,default=$SETEC_BACKUP_BUCKET_REGION,AWS region of the backup S3 bucket"`
+	BackupRole         string `flag:"backup-role,default=$SETEC_BACKUP_ROLE,Name of AWS IAM role to assume to write backups"`
 	Dev                bool   `flag:"dev,Run in developer mode"`
 }
 
