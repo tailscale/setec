@@ -162,17 +162,23 @@ func (f fieldInfo) apply(ctx context.Context, s *Store, fullName string) error {
 	if f.isJSON {
 		v, err := s.LookupSecret(ctx, fullName)
 		if err != nil {
-			return err
+			return fmt.Errorf("secret lookup error: %w", err)
 		}
-		return json.Unmarshal(v.Get(), f.value.Interface())
+		if err = json.Unmarshal(v.Get(), f.value.Interface()); err != nil {
+			return fmt.Errorf("json.Unmarshal error: %w", err)
+		}
+		return nil
 	}
 
 	v, err := s.LookupSecret(ctx, fullName)
 	if err != nil {
-		return err
+		return fmt.Errorf("secret lookup error: %w", err)
 	}
 	if f.unmarshal != nil {
-		return f.unmarshal(v.Get())
+		if err = f.unmarshal(v.Get()); err != nil {
+			return fmt.Errorf("unmarshal error: %w", err)
+		}
+		return nil
 	}
 	switch f.vtype {
 	case bytesType:
