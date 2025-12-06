@@ -96,6 +96,16 @@ type PutRequest struct {
 	Value []byte
 }
 
+// SetRequest is a request to write a secret value at a specific version.
+type SetRequest struct {
+	// Name is the name of the secret to write.
+	Name string
+	// Version is the version to make active.
+	Version SecretVersion
+	// Value is the secret value.
+	Value []byte
+}
+
 // ActivateRequest is a request to change the active version of a secret.
 type ActivateRequest struct {
 	// Name is the name of the secret to update.

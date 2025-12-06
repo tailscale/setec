@@ -27,6 +27,10 @@ const (
 	// secret.
 	ActionPut = Action("put")
 
+	// ActionSet ("set" in the API) denotes permission to set a specific version
+	// of a secret if and only if that version has not yet been set.
+	ActionSet = Action("set")
+
 	// ActionActivate ("activate" in the API) denotes permission to set one one
 	// of of the available versions of a secret as the active one.
 	ActionActivate = Action("activate")
