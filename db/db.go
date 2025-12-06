@@ -50,6 +50,9 @@ var (
 	// ErrNotFound is the error returned by DB methods when the
 	// database lacks a necessary secret or secret version.
 	ErrNotFound = errors.New("not found")
+	// ErrVersionExists indicates that an attempt was made to create a
+	// version of a secret that already exists.
+	ErrVersionExists = errors.New("version already exists")
 )
 
 // Open loads the secrets database at path, decrypting it using key.
@@ -237,7 +240,7 @@ func (db *DB) Put(caller Caller, name string, value []byte) (api.SecretVersion, 
 	if strings.HasPrefix(name, configPrefix) {
 		return db.putConfigLocked(name, value)
 	}
-	return db.kv.put(name, value)
+	return db.kv.put(name, value, nil)
 }
 
 func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, error) {
@@ -245,6 +248,34 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 	default:
 		return 0, fmt.Errorf("unknown config value %q", name)
 	}
+}
+
+// Set behaves like [db.Put], with the following differences:
+//
+// - It explicitly creates the specified version.
+// - It fails if a value already exists for the specified version.
+func (db *DB) Set(caller Caller, name string, version api.SecretVersion, value []byte) error {
+	if name == "" {
+		return errors.New("empty secret name")
+	}
+	if err := db.checkAndLog(caller, acl.ActionSet, name, version); err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	_, err := db.kv.getVersion(name, version)
+	if err == nil {
+		return ErrVersionExists
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	_, err = db.kv.put(name, value, &version)
+	if err != nil {
+		return err
+	}
+	return db.kv.setActive(name, version)
 }
 
 // Activate changes the active version of the secret called name to version.

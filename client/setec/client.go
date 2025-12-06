@@ -199,6 +199,19 @@ func (c Client) Put(ctx context.Context, name string, value []byte) (version api
 	})
 }
 
+// Put creates a secret called name, with the given value. If a secret called
+// name already exist, the value is saved as a new inactive version.
+//
+// Access requirement: "set"
+func (c Client) Set(ctx context.Context, name string, version api.SecretVersion, value []byte) error {
+	_, err := do[struct{}](ctx, c, "/api/set", api.SetRequest{
+		Name:    name,
+		Version: version,
+		Value:   value,
+	})
+	return err
+}
+
 // Activate changes the active version of the secret called name to version.
 //
 // Access requirement: "activate"

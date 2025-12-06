@@ -227,6 +227,45 @@ func TestPut(t *testing.T) {
 	mustGetVersion(ver3, "test value 2")
 }
 
+func TestSet(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	id := d.Superuser
+
+	const testName = "test-secret-name"
+	mustGetVersion := func(version api.SecretVersion, want string) *api.SecretValue {
+		t.Helper()
+		got := d.MustGetVersion(id, testName, version)
+		if !bytes.Equal(got.Value, []byte(want)) {
+			t.Fatalf("Get %q version %v: got %q, want %q", testName, id, got.Value, want)
+		}
+		return got
+	}
+
+	testValue1 := []byte("test value 1")
+	testValue2 := []byte("test value 2")
+
+	// Setting first version should be allowed.
+	err := d.Actual.Set(id, testName, 1, testValue1)
+	if err != nil {
+		t.Fatalf("failed to Set first version: %s", err)
+	}
+	mustGetVersion(1, "test value 1")
+
+	// Setting a disjoint version for the first time should be allowed.
+	err = d.Actual.Set(id, testName, 100, testValue2)
+	if err != nil {
+		t.Fatalf("failed to Set disjoint version: %s", err)
+	}
+	mustGetVersion(100, "test value 2")
+
+	// Setting a disjoint version for the second time should not be allowed.
+	err = d.Actual.Set(id, testName, 100, testValue2)
+	if !errors.Is(err, db.ErrVersionExists) {
+		t.Fatalf("Setting existing version should have failed with %s but returned %s", db.ErrVersionExists, err)
+	}
+	mustGetVersion(100, "test value 2")
+}
+
 func TestDelete(t *testing.T) {
 	d := setectest.NewDB(t, nil)
 	id := d.Superuser

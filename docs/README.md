@@ -80,6 +80,10 @@ The [setec API](api.md) defines the following basic operations:
 - The `put` method creates or adds a new value to a secret. The server assigns
   and reports a version number for the value.
 
+- The `set` method is an alternative to the `put` method that sets a specific
+  version number to a value if and only if no value exists for that version
+  number.
+
 ### Current Active Versions
 
 - At any time, one version of the secret is designated as its **current active

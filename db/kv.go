@@ -320,7 +320,8 @@ func (kv *kv) getVersion(name string, version api.SecretVersion) (*api.SecretVal
 // exists, value is saved as a new inactive version. Otherwise, value
 // is saved as the initial version of the secret and immediately set
 // active. On success, returns the secret version for the new value.
-func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
+// If an explicit version is specified, the value is saved at that version.
+func (kv *kv) put(name string, value []byte, version *api.SecretVersion) (api.SecretVersion, error) {
 	s := kv.secrets[name]
 	if s == nil {
 		kv.secrets[name] = &secret{
@@ -344,7 +345,13 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 		return s.LatestVersion, nil
 	}
 
-	s.LatestVersion++
+	if version != nil {
+		if *version > s.LatestVersion {
+			s.LatestVersion = *version
+		}
+	} else {
+		s.LatestVersion++
+	}
 	s.Versions[s.LatestVersion] = bsValue
 	if err := kv.save(); err != nil {
 		delete(s.Versions, s.LatestVersion)
