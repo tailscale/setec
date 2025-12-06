@@ -199,6 +199,19 @@ func (c Client) Put(ctx context.Context, name string, value []byte) (version api
 	})
 }
 
+// CreateVersion Creates a specific version of a secret, sets its value and immediately activates that version.
+// It fails if this version of the secret ever had a value.
+//
+// Access requirement: "create-version"
+func (c Client) CreateVersion(ctx context.Context, name string, version api.SecretVersion, value []byte) error {
+	_, err := do[struct{}](ctx, c, "/api/create-version", api.CreateVersionRequest{
+		Name:    name,
+		Version: version,
+		Value:   value,
+	})
+	return err
+}
+
 // Activate changes the active version of the secret called name to version.
 //
 // Access requirement: "activate"

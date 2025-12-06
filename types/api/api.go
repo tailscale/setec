@@ -96,6 +96,17 @@ type PutRequest struct {
 	Value []byte
 }
 
+// CreateVersionRequest is a request to create a specific version of a secret
+// with a given value.
+type CreateVersionRequest struct {
+	// Name is the name of the secret to write.
+	Name string
+	// Version is the version to create and make active.
+	Version SecretVersion
+	// Value is the secret value.
+	Value []byte
+}
+
 // ActivateRequest is a request to change the active version of a secret.
 type ActivateRequest struct {
 	// Name is the name of the secret to update.

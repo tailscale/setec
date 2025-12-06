@@ -16,7 +16,7 @@ func TestACL(t *testing.T) {
 			Secret: []acl.Secret{"control/foo", "control/bar"},
 		},
 		acl.Rule{
-			Action: []acl.Action{acl.ActionInfo, acl.ActionPut, acl.ActionActivate},
+			Action: []acl.Action{acl.ActionInfo, acl.ActionPut, acl.ActionCreateVersion, acl.ActionActivate},
 			Secret: []acl.Secret{"*"},
 		},
 		acl.Rule{
@@ -54,6 +54,12 @@ func TestACL(t *testing.T) {
 		allow("put", "control/quux"),
 		allow("put", "something/else"),
 		allow("put", "dev/foo"),
+
+		allow("create-version", "control/foo"),
+		allow("create-version", "control/bar"),
+		allow("create-version", "control/quux"),
+		allow("create-version", "something/else"),
+		allow("create-version", "dev/foo"),
 
 		allow("activate", "control/foo"),
 		allow("activate", "control/bar"),

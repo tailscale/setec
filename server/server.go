@@ -95,6 +95,7 @@ type Server struct {
 	countCallForbidden     *metrics.LabelMap // :: method name → count
 	countCallNotFound      *metrics.LabelMap // :: method name → count
 	countCallInternalError *metrics.LabelMap // :: method name → count
+	countCallAlreadySet    *metrics.LabelMap // :: method name → count
 }
 
 //go:embed templates
@@ -133,6 +134,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		countCallForbidden:     &metrics.LabelMap{Label: "method"},
 		countCallNotFound:      &metrics.LabelMap{Label: "method"},
 		countCallInternalError: &metrics.LabelMap{Label: "method"},
+		countCallAlreadySet:    &metrics.LabelMap{Label: "method"},
 	}
 
 	if cfg.BackupBucket != "" {
@@ -151,6 +153,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/get", ret.get)
 	cfg.Mux.HandleFunc("/api/info", ret.info)
 	cfg.Mux.HandleFunc("/api/put", ret.put)
+	cfg.Mux.HandleFunc("/api/create-version", ret.createVersion)
 	cfg.Mux.HandleFunc("/api/activate", ret.activate)
 	cfg.Mux.HandleFunc("/api/delete", ret.deleteSecret)
 	cfg.Mux.HandleFunc("/api/delete-version", ret.deleteVersion)
@@ -248,6 +251,15 @@ func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 	serveJSON(s, w, r, func(req api.PutRequest, id db.Caller) (api.SecretVersion, error) {
 		return s.db.Put(id, req.Name, req.Value)
+	})
+}
+
+func (s *Server) createVersion(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.CreateVersionRequest, id db.Caller) (struct{}, error) {
+		if err := s.db.CreateVersion(id, req.Name, req.Version, req.Value); err != nil {
+			return struct{}{}, err
+		}
+		return struct{}{}, nil
 	})
 }
 
@@ -376,6 +388,13 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotModified)
 		return
+	} else if errors.Is(err, db.ErrInvalidVersion) {
+		s.countCallBadRequest.Add(apiMethod, 1)
+		s.countCallAlreadySet.Add(apiMethod, 1)
+		http.Error(w, "invalid version, please specify a version > 0", http.StatusBadRequest)
+	} else if errors.Is(err, db.ErrVersionTaken) {
+		s.countCallAlreadySet.Add(apiMethod, 1)
+		http.Error(w, "version already set", http.StatusPreconditionFailed)
 	} else if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)
 		http.Error(w, "internal error", http.StatusInternalServerError)

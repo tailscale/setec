@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/tailscale/setec/audit"
@@ -225,6 +226,165 @@ func TestPut(t *testing.T) {
 
 	mustGetVersion(ver1, "test value 1")
 	mustGetVersion(ver3, "test value 2")
+}
+
+func TestCreateVersion(t *testing.T) {
+	secretName := "secret1"
+	checkVersion := func(t *testing.T, d *setectest.DB, version api.SecretVersion, want []byte) *api.SecretValue {
+		t.Helper()
+		got := d.MustGetVersion(d.Superuser, secretName, version)
+		if !bytes.Equal(got.Value, want) {
+			t.Fatalf("Get %q version %v: got %q, want %q", secretName, version, string(got.Value), string(want))
+		}
+		return got
+	}
+	checkActiveVersion := func(t *testing.T, d *setectest.DB, want []byte) {
+		t.Helper()
+		got := d.MustGet(d.Superuser, secretName)
+		if !bytes.Equal(got.Value, want) {
+			t.Fatalf("Get active %q: got %q, want %q", secretName, string(got.Value), string(want))
+		}
+	}
+
+	testValue1 := []byte("test value 1")
+	testValue2 := []byte("test value 2")
+	testValue3 := []byte("test value 3")
+	testValue4 := []byte("test value 4")
+
+	// One use for setting explicit versions is doing time-based rotation using something like
+	// UNIX timestamps. This simulates that.
+	year2099 := api.SecretVersion(time.Date(2099, 12, 31, 24, 60, 60, 0, time.UTC).Unix())
+
+	t.Run("create", func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
+
+		// Creating first version should be allowed.
+		err := d.Actual.CreateVersion(d.Superuser, secretName, 1, testValue1)
+		if err != nil {
+			t.Fatalf("failed to create first version: %s", err)
+		}
+		checkVersion(t, d, 1, testValue1)
+		checkActiveVersion(t, d, testValue1)
+
+		// Creating a disjoint version for the first time should be allowed.
+		err = d.Actual.CreateVersion(d.Superuser, secretName, year2099, testValue2)
+		if err != nil {
+			t.Fatalf("failed to create disjoint version: %s", err)
+		}
+		checkVersion(t, d, year2099, testValue2)
+		checkActiveVersion(t, d, testValue2)
+
+		// Creating a disjoint version for the second time should not be allowed.
+		err = d.Actual.CreateVersion(d.Superuser, secretName, year2099, testValue2)
+		if !errors.Is(err, db.ErrVersionTaken) {
+			t.Fatalf("Setting existing version should have failed with %q but returned %q", db.ErrVersionTaken, err)
+		}
+		checkVersion(t, d, year2099, testValue2)
+		checkActiveVersion(t, d, testValue2)
+
+		// Creating an in-between version should be allowed.
+		err = d.Actual.CreateVersion(d.Superuser, secretName, 100, testValue3)
+		if err != nil {
+			t.Fatalf("failed to create in-between version: %s", err)
+		}
+		checkVersion(t, d, 100, testValue3)
+		checkActiveVersion(t, d, testValue3)
+	})
+
+	t.Run("create_disjoint_allowed", func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
+
+		// Creating with disjoint version should be allowed.
+		err := d.Actual.CreateVersion(d.Superuser, secretName, 100, testValue1)
+		if err != nil {
+			t.Fatalf("failed to create first version: %s", err)
+		}
+		checkVersion(t, d, 100, testValue1)
+		checkActiveVersion(t, d, testValue1)
+	})
+
+	t.Run("create_zero_prohibited", func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
+
+		// Creating with disjoint version should be allowed.
+		err := d.Actual.CreateVersion(d.Superuser, secretName, 0, testValue1)
+		if !errors.Is(err, db.ErrInvalidVersion) {
+			t.Fatalf("Setting version to 0 should have failed with %q but returned %q", db.ErrInvalidVersion, err)
+		}
+	})
+
+	t.Run("put_create_put_delete", func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
+
+		// Putting a new secret works
+		version, err := d.Actual.Put(d.Superuser, secretName, testValue1)
+		if err != nil {
+			t.Fatalf("failed to Put new secret: %s", err)
+		}
+		if version != 1 {
+			t.Fatalf("expected first Put to create version 1, but created %d", version)
+		}
+		checkVersion(t, d, 1, testValue1)
+		checkActiveVersion(t, d, testValue1)
+
+		// Creating a higher version works
+		err = d.Actual.CreateVersion(d.Superuser, secretName, 100, testValue3)
+		if err != nil {
+			t.Fatalf("failed to create higher version: %s", err)
+		}
+		checkVersion(t, d, 100, testValue3)
+		checkActiveVersion(t, d, testValue3)
+
+		// Creating an in-between version works
+		err = d.Actual.CreateVersion(d.Superuser, secretName, 10, testValue2)
+		if err != nil {
+			t.Fatalf("failed to create in-between version: %s", err)
+		}
+		checkVersion(t, d, 10, testValue2)
+		checkActiveVersion(t, d, testValue2)
+
+		// Putting gets the next higher version, but without activating
+		version, err = d.Actual.Put(d.Superuser, secretName, testValue4)
+		if err != nil {
+			t.Fatalf("failed to Put new secret: %s", err)
+		}
+		if version != 101 {
+			t.Fatalf("expected second Put to create version 101, but created %d", version)
+		}
+		checkVersion(t, d, 101, testValue4)
+		checkActiveVersion(t, d, testValue2)
+
+		// Deleting highest version allowed
+		err = d.Actual.DeleteVersion(d.Superuser, secretName, 101)
+		if err != nil {
+			t.Fatalf("failed to delete highest version: %s", err)
+		}
+		checkActiveVersion(t, d, testValue2)
+
+		// Deleting the next highest version also allowed
+		err = d.Actual.DeleteVersion(d.Superuser, secretName, 100)
+		if err != nil {
+			t.Fatalf("failed to delete next-highest version: %s", err)
+		}
+		checkActiveVersion(t, d, testValue2)
+
+		// Re-creating deleted version is not allowed
+		err = d.Actual.CreateVersion(d.Superuser, secretName, 100, testValue2)
+		if !errors.Is(err, db.ErrVersionTaken) {
+			t.Fatalf("Recreating deleted version should have failed with %q but returned %q", db.ErrVersionTaken, err)
+		}
+
+		// Putting gets the next higher version despite deletes
+		version, err = d.Actual.Put(d.Superuser, secretName, testValue4)
+		if err != nil {
+			t.Fatalf("failed to Put new secret: %s", err)
+		}
+		if version != 102 {
+			t.Fatalf("expected second Put to create version 102, but created %d", version)
+		}
+		checkVersion(t, d, 102, testValue4)
+		checkActiveVersion(t, d, testValue2)
+	})
 }
 
 func TestDelete(t *testing.T) {

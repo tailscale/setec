@@ -33,6 +33,9 @@ The service defines named _actions_ that are subject to access control:
 
 - `put`: Denotes permission to put a new value of a secret.
 
+- `create-version`: Denotes permission to create a specific version of a secret, but not
+   override an existing version.
+
 - `activate`: Denotes permission to set one one of of the available versions of
   a secret as the active one.
 
@@ -105,7 +108,7 @@ The service defines named _actions_ that are subject to access control:
   {"Name":"example","Versions":[1,2,3],"ActiveVersion":2}
   ```
 
-- `/api/put`: Add a a new value for a secret.
+- `/api/put`: Add a new value for a secret.
 
   **Requires:** `put` permission for the specified name.
 
@@ -126,6 +129,19 @@ The service defines named _actions_ that are subject to access control:
   If the value added is exactly equal to the existing active version of the
   secret, the server reports the existing active version without modifying the
   store.
+
+- `/api/create-version`: Creates a specific version of a secret, sets its value and immediately activates that version. It fails if this version of the secret already has a value. The specified version must be > 0.
+
+  **Requires:** `create-version` permission for the specified name.
+
+  **Request:** `api.CreateVersionRequest`
+
+  **Example request:**
+  ```json
+  {"Name":"example","Version": 2025, "Value":"YSBuZXcgYmVnaW5uaW5n"}
+  ```
+
+  **Response:** `null`
 
 - `/api/activate`: Set the active version of an existing secret.
 
