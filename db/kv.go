@@ -94,9 +94,12 @@ type secret struct {
 	// ActiveVersion is the secret version that gets returned to
 	// clients who don't ask for a specific version of the secret.
 	ActiveVersion api.SecretVersion
-	// LatestVersion is the latest version that has already been used
-	// by a previous Put.
+	// LatestVersion is the highest version that has already been used
+	// by a previous Put or CreateVersion.
 	LatestVersion api.SecretVersion
+	// DeletedVersions tracks versions that were previously set but
+	// have since been deleted. These are not permitted to be set again.
+	DeletedVersions map[api.SecretVersion]bool
 }
 
 // byteString is an alias for a string, but encodes to JSON as the conventional
@@ -354,6 +357,51 @@ func (kv *kv) put(name string, value []byte) (api.SecretVersion, error) {
 	return s.LatestVersion, nil
 }
 
+// createVersion creates the specified version of the secret called name with
+// the specified value. For a secret that does not yet exist, createVersion creates
+// the secret, sets the specified version to the given value and makes this the
+// secret's initial version. For a secret that already exists, createVersion
+// returns ErrVersionExists if the specified version ever had a value; otherwise,
+// createVersion sets the specified version to the given value and immediately
+// activates this version.
+func (kv *kv) createVersion(name string, version api.SecretVersion, value []byte) error {
+	s := kv.secrets[name]
+	if s == nil {
+		kv.secrets[name] = &secret{
+			LatestVersion: version,
+			ActiveVersion: version,
+			Versions: map[api.SecretVersion]byteString{
+				version: byteString(value),
+			},
+		}
+		if err := kv.save(); err != nil {
+			delete(kv.secrets, name)
+			return err
+		}
+		return nil
+	}
+
+	_, hasVersion := s.Versions[version]
+	hadVersion := s.DeletedVersions != nil && s.DeletedVersions[version]
+	if hasVersion || hadVersion {
+		return ErrVersionTaken
+	}
+
+	bsValue := byteString(value)
+	s.Versions[version] = bsValue
+	priorLatestVersion := s.LatestVersion
+	priorActiveVersion := s.ActiveVersion
+	s.LatestVersion = max(priorLatestVersion, version)
+	s.ActiveVersion = version
+	if err := kv.save(); err != nil {
+		delete(s.Versions, version)
+		s.LatestVersion = priorLatestVersion
+		s.ActiveVersion = priorActiveVersion
+		return err
+	}
+	return nil
+}
+
 // setActive changes the active version of the secret called name to
 // version.
 func (kv *kv) setActive(name string, version api.SecretVersion) error {
@@ -395,8 +443,17 @@ func (kv *kv) deleteVersion(name string, version api.SecretVersion) error {
 		return fmt.Errorf("version %v: %w", version, ErrNotFound)
 	}
 	delete(secret.Versions, version)
+	if secret.DeletedVersions == nil {
+		secret.DeletedVersions = map[api.SecretVersion]bool{
+			version: true,
+		}
+	} else {
+		secret.DeletedVersions[version] = true
+	}
+
 	if err := kv.save(); err != nil {
 		secret.Versions[version] = old
+		delete(secret.DeletedVersions, version)
 		return err
 	}
 	return nil

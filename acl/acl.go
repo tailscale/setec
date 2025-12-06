@@ -27,6 +27,11 @@ const (
 	// secret.
 	ActionPut = Action("put")
 
+	// ActionCreateVersion ("create-version" in the API) denotes permission to
+	// create a specific version of a secret if and only if that version has never
+	// been set.
+	ActionCreateVersion = Action("create-version")
+
 	// ActionActivate ("activate" in the API) denotes permission to set one one
 	// of of the available versions of a secret as the active one.
 	ActionActivate = Action("activate")

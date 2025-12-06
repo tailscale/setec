@@ -80,6 +80,13 @@ The [setec API](api.md) defines the following basic operations:
 - The `put` method creates or adds a new value to a secret. The server assigns
   and reports a version number for the value.
 
+- The `create-version` method creates a specific version of a secret, sets its
+  value and immediately activates that version. It fails if a value has ever
+  been set for that version.
+
+`put` and `create-version` are safe to use in conjunction with each other on the same
+secret.
+
 ### Current Active Versions
 
 - At any time, one version of the secret is designated as its **current active
@@ -92,6 +99,8 @@ The [setec API](api.md) defines the following basic operations:
 - Thereafter, the `activate` method must be used to update the current active
   version. This ensures the operator of the service has precise control over
   which version of a secret should be used at a time.
+   - The special `create-version` method automatically activates the set
+     version and does not require a call to `activate`.
 
 ### Deleting Values
 

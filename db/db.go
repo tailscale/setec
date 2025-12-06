@@ -50,6 +50,13 @@ var (
 	// ErrNotFound is the error returned by DB methods when the
 	// database lacks a necessary secret or secret version.
 	ErrNotFound = errors.New("not found")
+	// ErrVersionTaken indicates that an attempt was made to create a
+	// version of a secret that has at some point already been set,
+	// even if it has since been deleted.
+	ErrVersionTaken = errors.New("version is (or was previously) set")
+	// ErrInvalidVersion indicates that an attempt was made to create a
+	// version of a secret using an invalid version number (<=0).
+	ErrInvalidVersion = errors.New("invalid version")
 )
 
 // Open loads the secrets database at path, decrypting it using key.
@@ -245,6 +252,30 @@ func (db *DB) putConfigLocked(name string, value []byte) (api.SecretVersion, err
 	default:
 		return 0, fmt.Errorf("unknown config value %q", name)
 	}
+}
+
+// CreateVersion creates the specified version of the secret called name with
+// the specified value. For a secret that does not yet exist, CreateVersion creates
+// the secret, sets the specified version to the given value and makes this the
+// secret's initial version. For a secret that  already exists, CreateVersion
+// returns an error if the specified version ever had a value; otherwise, CreateVersion
+// sets the specified version to the given value and immediately activates this version.
+//
+// Access requirement: "create-version"
+func (db *DB) CreateVersion(caller Caller, name string, version api.SecretVersion, value []byte) error {
+	if name == "" {
+		return errors.New("empty secret name")
+	}
+	if version <= 0 {
+		return ErrInvalidVersion
+	}
+	if err := db.checkAndLog(caller, acl.ActionCreateVersion, name, version); err != nil {
+		return err
+	}
+
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	return db.kv.createVersion(name, version, value)
 }
 
 // Activate changes the active version of the secret called name to version.
