@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"slices"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -149,6 +150,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cfg.Mux.Handle("/static/", http.FileServer(http.FS(staticFiles)))
 	cfg.Mux.HandleFunc("/api/list", ret.list)
 	cfg.Mux.HandleFunc("/api/get", ret.get)
+	cfg.Mux.HandleFunc("/api/get-all", ret.getAll)
 	cfg.Mux.HandleFunc("/api/info", ret.info)
 	cfg.Mux.HandleFunc("/api/put", ret.put)
 	cfg.Mux.HandleFunc("/api/activate", ret.activate)
@@ -236,6 +238,21 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		}
 		// Case 3: Unconditional fetch of active version.
 		return s.db.Get(id, req.Name)
+	})
+}
+
+func (s *Server) getAll(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.GetAllRequest, id db.Caller) (*api.GetAllResponse, error) {
+		filtered, err := s.db.GetAllFiltered(id, req.Name, req.SkipVersions)
+		if err != nil {
+			return nil, err
+		}
+		slices.Sort(filtered.Versions)
+		return &api.GetAllResponse{
+			Active:   filtered.Active,
+			Versions: filtered.Versions,
+			Values:   filtered.Values,
+		}, nil
 	})
 }
 
