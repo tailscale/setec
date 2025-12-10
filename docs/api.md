@@ -1,7 +1,7 @@
 # setec API
 
 > WARNING: This API is still under active development, and subject to change.
-> This document is up-to-date as of 11-May-2024.
+> This document is up-to-date as of 10-Dec-2025.
 
 The setec service exports an API over HTTPS. All methods of the API are called
 via HTTPS POST, with request and response payloads transmitted as JSON.
