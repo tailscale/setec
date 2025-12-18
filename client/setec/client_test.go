@@ -4,7 +4,6 @@
 package setec_test
 
 import (
-	"context"
 	"errors"
 	"net/http/httptest"
 	"os"
@@ -42,7 +41,7 @@ func TestFileStore(t *testing.T) {
 		t.Fatalf("Write test data: %v", err)
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	fc, err := setec.NewFileClient(secPath)
 	if err != nil {
 		t.Fatalf("NewFileClient: unexpected error: %v", err)

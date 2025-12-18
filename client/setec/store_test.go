@@ -44,7 +44,7 @@ func TestStore(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	t.Run("NewStore_missingURL", func(t *testing.T) {
@@ -163,7 +163,7 @@ func TestCachedStore(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	st, err := setec.NewStore(ctx, setec.StoreConfig{
@@ -220,7 +220,7 @@ func TestBadCache(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	// Validate that errors in reading and decoding the cache do not prevent the
@@ -255,7 +255,7 @@ func TestSlowInit(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	errc := make(chan error)
@@ -322,7 +322,7 @@ func TestUpdater(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	pollTicker := setectest.NewFakeTicker()
@@ -400,7 +400,7 @@ func TestLookup(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	// Case 1: We can create a store with no secrets if AllowLookup is true.
@@ -461,7 +461,7 @@ func TestCacheExpiry(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	mc := new(setec.MemCache)

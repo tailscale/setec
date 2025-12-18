@@ -26,7 +26,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	t.Run("NoDB", func(t *testing.T) {
 		d, err := server.New(ctx, server.Config{})
 		if err == nil {
@@ -69,7 +69,7 @@ func TestServerGetChanged(t *testing.T) {
 	hs := httptest.NewServer(ss.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	// Case 1: Fetch the active value of the secret (v1).
@@ -131,7 +131,7 @@ func TestServerStatus(t *testing.T) {
 	hs := httptest.NewServer(ss.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	// Note: Conditional get is exercised by TestServerGetChanged above.
