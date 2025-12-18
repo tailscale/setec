@@ -5,7 +5,6 @@ package setec_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"net/http/httptest"
 	"strings"
@@ -82,7 +81,7 @@ func TestFields(t *testing.T) {
 		t.Fatalf("ParseFields: unexpected error: %v", err)
 	}
 
-	st, err := setec.NewStore(context.Background(), setec.StoreConfig{
+	st, err := setec.NewStore(t.Context(), setec.StoreConfig{
 		Client: setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
 		Structs: []setec.Struct{
 			{Value: &obj, Prefix: "test"},
@@ -104,7 +103,7 @@ func TestFields(t *testing.T) {
 	}
 
 	// Check that we can apply values.
-	if err := f.Apply(context.Background(), st); err != nil {
+	if err := f.Apply(t.Context(), st); err != nil {
 		t.Errorf("Apply failed; %v", err)
 	}
 

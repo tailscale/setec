@@ -4,7 +4,6 @@
 package setec
 
 import (
-	"context"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -21,7 +20,7 @@ func TestWatcher(t *testing.T) {
 	hs := httptest.NewServer(ts.Mux)
 	defer hs.Close()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	cli := Client{Server: hs.URL, DoHTTP: hs.Client().Do}
 
 	pollTicker := setectest.NewFakeTicker()
