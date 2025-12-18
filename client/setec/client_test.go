@@ -6,12 +6,14 @@ package setec_test
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/tailscale/setec/client/setec"
+	"github.com/tailscale/setec/setectest"
 	"github.com/tailscale/setec/types/api"
 )
 
@@ -106,4 +108,62 @@ func TestFileStore(t *testing.T) {
 			t.Logf("Got expected error: %v", err)
 		}
 	})
+}
+
+func TestFileClientCacheCompatibility(t *testing.T) {
+	// Verify that the FileClient is able to consume the format written by the
+	// FileCache. To do this, create a store and force it to generate its cache,
+	// then open a new store that reads that cache via a FileClient.
+
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "apple", "a1")  // active
+	d.MustPut(d.Superuser, "apple", "a2")  // present but not (yet) active
+	d.MustPut(d.Superuser, "pear", "p1")   // active
+	d.MustPut(d.Superuser, "cherry", "c1") // present but not (any longer) active
+	d.MustActivate(d.Superuser, "cherry", d.MustPut(d.Superuser, "cherry", "c2"))
+
+	// Set up the file cache.
+	cpath := filepath.Join(t.TempDir(), "cache.json")
+	fcache, err := setec.NewFileCache(cpath)
+	if err != nil {
+		t.Fatalf("Create file cache: %v", err)
+	}
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	st, err := setec.NewStore(t.Context(), setec.StoreConfig{
+		Client:  setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+		Cache:   fcache,
+		Secrets: []string{"apple", "pear", "cherry"},
+		Logf:    t.Logf,
+	})
+	if err != nil {
+		t.Fatalf("Create store: %v", err)
+	}
+	if err := st.Refresh(t.Context()); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	st.Close()
+
+	// Load the cache as a client.
+	fclient, err := setec.NewFileClient(cpath)
+	if err != nil {
+		t.Fatalf("New file client: %v", err)
+	}
+
+	st, err = setec.NewStore(t.Context(), setec.StoreConfig{
+		Client:  fclient,
+		Secrets: []string{"apple", "pear", "cherry"},
+		Logf:    t.Logf,
+	})
+	if err != nil {
+		t.Fatalf("Create store: %v", err)
+	}
+	defer st.Close()
+
+	checkSecretValue(t, st, "apple", "a1")
+	checkSecretValue(t, st, "pear", "p1")
+	checkSecretValue(t, st, "cherry", "c2")
 }
