@@ -19,6 +19,11 @@ var (
 	// secret version is not found.
 	ErrNotFound = errors.New("not found")
 
+	// ErrVersionClaimed indicates that an attempt was made to create a
+	// version of a secret that has at some point already been set,
+	// even if it has since been deleted.
+	ErrVersionClaimed = errors.New("version is already claimed")
+
 	// ErrAccessDenied is a sentinel error reported by requests when access to
 	// perform the requested operation is denied.
 	ErrAccessDenied = errors.New("access denied")

@@ -276,8 +276,8 @@ func TestCreateVersion(t *testing.T) {
 
 		// Creating a disjoint version for the second time should not be allowed.
 		err = d.Actual.CreateVersion(d.Superuser, secretName, year2099, testValue2)
-		if !errors.Is(err, db.ErrVersionTaken) {
-			t.Fatalf("Setting existing version should have failed with %q but returned %q", db.ErrVersionTaken, err)
+		if !errors.Is(err, db.ErrVersionClaimed) {
+			t.Fatalf("Setting existing version should have failed with %q but returned %q", db.ErrVersionClaimed, err)
 		}
 		checkVersion(t, d, year2099, testValue2)
 		checkActiveVersion(t, d, testValue2)
@@ -370,8 +370,8 @@ func TestCreateVersion(t *testing.T) {
 
 		// Re-creating deleted version is not allowed
 		err = d.Actual.CreateVersion(d.Superuser, secretName, 100, testValue2)
-		if !errors.Is(err, db.ErrVersionTaken) {
-			t.Fatalf("Recreating deleted version should have failed with %q but returned %q", db.ErrVersionTaken, err)
+		if !errors.Is(err, db.ErrVersionClaimed) {
+			t.Fatalf("Recreating deleted version should have failed with %q but returned %q", db.ErrVersionClaimed, err)
 		}
 
 		// Putting gets the next higher version despite deletes

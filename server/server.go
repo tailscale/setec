@@ -392,9 +392,11 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 		s.countCallBadRequest.Add(apiMethod, 1)
 		s.countCallAlreadySet.Add(apiMethod, 1)
 		http.Error(w, "invalid version, please specify a version > 0", http.StatusBadRequest)
-	} else if errors.Is(err, db.ErrVersionTaken) {
+		return
+	} else if errors.Is(err, db.ErrVersionClaimed) {
 		s.countCallAlreadySet.Add(apiMethod, 1)
 		http.Error(w, "version already set", http.StatusPreconditionFailed)
+		return
 	} else if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)
 		http.Error(w, "internal error", http.StatusInternalServerError)

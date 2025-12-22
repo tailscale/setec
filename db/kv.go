@@ -384,7 +384,7 @@ func (kv *kv) createVersion(name string, version api.SecretVersion, value []byte
 	_, hasVersion := s.Versions[version]
 	hadVersion := s.DeletedVersions != nil && s.DeletedVersions[version]
 	if hasVersion || hadVersion {
-		return ErrVersionTaken
+		return ErrVersionClaimed
 	}
 
 	bsValue := byteString(value)
