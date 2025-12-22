@@ -303,6 +303,22 @@ func (kv *kv) get(name string) (*api.SecretValue, error) {
 	}, nil
 }
 
+// getAll returns all the versions of a secret, and the active version number.
+func (kv *kv) getAll(name string) (api.SecretVersion, []*api.SecretValue, error) {
+	secret := kv.secrets[name]
+	if secret == nil {
+		return 0, nil, ErrNotFound
+	}
+	all := make([]*api.SecretValue, 0, len(secret.Versions))
+	for v, bs := range secret.Versions {
+		all = append(all, &api.SecretValue{
+			Value:   []byte(bs),
+			Version: v,
+		})
+	}
+	return secret.ActiveVersion, all, nil
+}
+
 // getVersion returns a secret's value at a specific version.
 func (kv *kv) getVersion(name string, version api.SecretVersion) (*api.SecretValue, error) {
 	secret := kv.secrets[name]
