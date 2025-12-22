@@ -120,6 +120,7 @@ func TestFileClientCacheCompatibility(t *testing.T) {
 	d.MustPut(d.Superuser, "pear", "p1")   // active
 	d.MustPut(d.Superuser, "cherry", "c1") // present but not (any longer) active
 	d.MustActivate(d.Superuser, "cherry", d.MustPut(d.Superuser, "cherry", "c2"))
+	d.MustCreateVersion(d.Superuser, "orange", 100, "o1") // versioned secret can't be read from FileStore but should be okay to have in cache
 
 	// Set up the file cache.
 	cpath := filepath.Join(t.TempDir(), "cache.json")
@@ -133,16 +134,20 @@ func TestFileClientCacheCompatibility(t *testing.T) {
 	defer hs.Close()
 
 	st, err := setec.NewStore(t.Context(), setec.StoreConfig{
-		Client:  setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
-		Cache:   fcache,
-		Secrets: []string{"apple", "pear", "cherry"},
-		Logf:    t.Logf,
+		Client:      setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+		Cache:       fcache,
+		Secrets:     []string{"apple", "pear", "cherry"},
+		AllowLookup: true,
+		Logf:        t.Logf,
 	})
 	if err != nil {
 		t.Fatalf("Create store: %v", err)
 	}
 	if err := st.Refresh(t.Context()); err != nil {
 		t.Fatalf("Refresh: %v", err)
+	}
+	if _, err := st.VersionedSecret("orange").GetVersion(t.Context(), 100); err != nil {
+		t.Fatalf("GetVersion(orange, 1): %v", err)
 	}
 	st.Close()
 

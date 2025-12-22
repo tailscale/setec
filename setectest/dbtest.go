@@ -137,3 +137,12 @@ func (db *DB) MustList(caller db.Caller) []*api.SecretInfo {
 	}
 	return vs
 }
+
+// MustCreateVersion creates the specified version of the named secret or fails.
+func (db *DB) MustCreateVersion(caller db.Caller, name string, version api.SecretVersion, value string) {
+	db.t.Helper()
+
+	if err := db.Actual.CreateVersion(caller, name, version, []byte(value)); err != nil {
+		db.t.Fatalf("CreateVersion %v of %q failed: %v", version, name, err)
+	}
+}

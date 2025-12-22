@@ -16,6 +16,7 @@ import (
 	"github.com/creachadair/mds/mtest"
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/setectest"
+	"github.com/tailscale/setec/types/api"
 	"tailscale.com/types/logger"
 )
 
@@ -448,6 +449,191 @@ func TestLookup(t *testing.T) {
 	if f := st.Secret("nonesuch"); f != nil {
 		t.Errorf("Lookup(nonesuch): got %v, want nil", f)
 	}
+}
+
+func TestVersionedSecret(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	ctx := t.Context()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+	err := cli.CreateVersion(ctx, "old", 2, []byte("blue"))
+	if err != nil {
+		t.Fatalf("CreateVersion for old: unexpected error: %s", err)
+	}
+
+	// Make a poll ticker so we can control the poll schedule.
+	pollTicker := setectest.NewFakeTicker()
+
+	const cacheData = `{"old":{"secret":{"Value":"Ymx1ZQ==","Version":2},"lastAccess":"0"}}`
+
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: true,
+		Logf:        logger.Discard,
+		PollTicker:  pollTicker,
+		Cache:       setec.NewMemCache(cacheData),
+		Secrets:     []string{"old"},
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+	defer st.Close()
+
+	// Read old secret first to make sure active version is readable.
+	os := st.Secret("old")
+	if string(os.GetString()) != "blue" {
+		t.Fatalf("Old secret should have been blue but was %q", os.GetString())
+	}
+
+	const secretName = "secret_name"
+	vs := st.VersionedSecret(secretName)
+	err = vs.CreateVersion(ctx, 0, []byte("red"))
+	if err == nil {
+		t.Fatalf("CreateVersion 0 should have failed")
+	}
+
+	err = vs.CreateVersion(ctx, 1, []byte("red")) // This first version automatically becomes active
+	if err != nil {
+		t.Fatalf("CreateVersion 1: unexpected error: %v", err)
+	}
+	s1, err := vs.GetVersion(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetVersion 1: unexpected error: %v", err)
+	}
+	if string(s1) != "red" {
+		t.Fatalf("Version 1 should have been red but was %q", string(s1))
+	}
+
+	// Verify that it's possible to get the active secret too
+	sa := st.Secret(secretName)
+	if string(sa()) != "red" {
+		t.Fatalf("Active version should be red but was %q", string(sa()))
+	}
+
+	err = vs.CreateVersion(ctx, 2, []byte("green"))
+	if err != nil {
+		t.Fatalf("CreateVersion 2: unexpected error: %v", err)
+	}
+	err = vs.CreateVersion(ctx, 2, []byte("orange"))
+	if !errors.Is(err, api.ErrVersionClaimed) {
+		t.Fatalf("CreateVersion 2 again: should have failed with ErrVersionClaimed, but resulted in: %s", err)
+	}
+	s2, err := vs.GetVersion(ctx, 2)
+	if err != nil {
+		t.Fatalf("GetVersion 2: unexpected error: %v", err)
+	}
+	if string(s2) != "green" {
+		t.Fatalf("Version 2 should have been green but was %q", string(s2))
+	}
+	if sa.GetString() != "green" {
+		t.Fatalf("Active version should have changed to green but was %q", sa.GetString())
+	}
+
+	s1b, err := vs.GetVersion(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetVersion 1: unexpected error: %v", err)
+	}
+	if string(s1b) != "red" {
+		t.Fatalf("Version 1 should still be red but was %q", string(s1b))
+	}
+	if sa.GetString() != "green" {
+		t.Fatalf("Active version should still be green but was %q", string(sa.GetString()))
+	}
+
+	// Activate an older version on the server and make sure poll picks up the change
+	err = cli.Activate(ctx, secretName, 1)
+	if err != nil {
+		t.Fatalf("ActivateVersion: unexpected error: %v", err)
+	}
+	pollTicker.Poll()
+	if sa.GetString() != "red" {
+		t.Fatalf("Active version should have reverted to red but was %q", string(sa.GetString()))
+	}
+
+	// Delete a version on the server and make sure poll picks up the change
+	err = cli.DeleteVersion(ctx, secretName, 2)
+	if err != nil {
+		t.Fatalf("DeleteVersion: unexpected error: %v", err)
+	}
+	pollTicker.Poll()
+	_, err = vs.GetVersion(ctx, 2)
+	if !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("Expected version 2 to be not found, but got error: %s", err)
+	}
+
+	// Create a new version on the server and make sure poll picks up the change
+	err = cli.CreateVersion(ctx, secretName, 3, []byte("lime"))
+	if err != nil {
+		t.Fatalf("CreateVersion: unexpected error: %v", err)
+	}
+	pollTicker.Poll()
+	s3, err := vs.GetVersion(ctx, 3)
+	if err != nil {
+		t.Fatalf("GetVersion: unexpected error: %v", err)
+	}
+	if string(s3) != "lime" {
+		t.Fatalf("Version 3 should have been lime but was %q", string(s3))
+	}
+	if sa.GetString() != "lime" {
+		t.Fatalf("Active version should have changed to lime but was %q", string(sa.GetString()))
+	}
+}
+
+func TestVersionedSecretUnsupportedClient(t *testing.T) {
+	secPath := filepath.Join(t.TempDir(), "secrets.json")
+	if err := os.WriteFile(secPath, []byte("{}"), 0600); err != nil {
+		t.Fatalf("Write test data: %v", err)
+	}
+
+	ctx := t.Context()
+	cli, err := setec.NewFileClient(secPath)
+	if err != nil {
+		t.Fatalf("NewFileClient: unexpected error: %v", err)
+	}
+
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: true,
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+
+	mtest.MustPanicf(t, func() {
+		st.VersionedSecret("secret_name")
+	}, "VersionedSecret should have panicked with unsupported client")
+}
+
+func TestVersionedSecretLookupsDisabled(t *testing.T) {
+	secPath := filepath.Join(t.TempDir(), "secrets.json")
+	if err := os.WriteFile(secPath, []byte(testSecrets), 0600); err != nil {
+		t.Fatalf("Write test data: %v", err)
+	}
+
+	ctx := t.Context()
+	cli, err := setec.NewFileClient(secPath)
+	if err != nil {
+		t.Fatalf("NewFileClient: unexpected error: %v", err)
+	}
+
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: false,
+		Secrets:     []string{"plum"},
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+
+	mtest.MustPanicf(t, func() {
+		st.VersionedSecret("secret_name")
+	}, "VersionedSecret should have panicked with lookups disabled")
 }
 
 func TestCacheExpiry(t *testing.T) {

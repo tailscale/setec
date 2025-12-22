@@ -92,7 +92,7 @@ var allAccessCap []tailcfg.RawMessage
 func init() {
 	rule, err := json.Marshal(acl.Rule{
 		Action: []acl.Action{
-			acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionActivate, acl.ActionDelete,
+			acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionCreateVersion, acl.ActionActivate, acl.ActionDelete,
 		},
 		Secret: []acl.Secret{"*"},
 	})
