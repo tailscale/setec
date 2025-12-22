@@ -16,6 +16,7 @@ import (
 	"github.com/creachadair/mds/mtest"
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/setectest"
+	"github.com/tailscale/setec/types/api"
 	"tailscale.com/types/logger"
 )
 
@@ -447,6 +448,100 @@ func TestLookup(t *testing.T) {
 	// With lookup enabled, unknown secrets report nil.
 	if f := st.Secret("nonesuch"); f != nil {
 		t.Errorf("Lookup(nonesuch): got %v, want nil", f)
+	}
+}
+
+func TestVersionedSecret(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	ctx := t.Context()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: true,
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+
+	vs := st.VersionedSecret("secret_name")
+	err = vs.CreateVersion(ctx, 0, []byte("red"))
+	if err == nil {
+		t.Fatalf("CreateVersion 0 should have failed")
+	}
+
+	err = vs.CreateVersion(ctx, 1, []byte("red"))
+	if err != nil {
+		t.Fatalf("CreateVersion 1: unexpected error: %v", err)
+	}
+	s1, err := vs.GetVersion(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetVersion 1: unexpected error")
+	}
+	if string(s1) != "red" {
+		t.Fatalf("Version 1 should have been red but was %q", string(s1))
+	}
+
+	err = vs.CreateVersion(ctx, 2, []byte("green"))
+	if err != nil {
+		t.Fatalf("CreateVersion 2: unexpected error: %v", err)
+	}
+	err = vs.CreateVersion(ctx, 2, []byte("orange"))
+	if !errors.Is(err, api.ErrVersionClaimed) {
+		t.Fatalf("CreateVersion 2 again: should have failed with ErrVersionClaimed, but resulted in: %s", err)
+	}
+	s2, err := vs.GetVersion(ctx, 2)
+	if err != nil {
+		t.Fatalf("GetVersion 2: unexpected error")
+	}
+	if string(s2) != "green" {
+		t.Fatalf("Version 2 should have been green but was %q", string(s2))
+	}
+
+	s1b, err := vs.GetVersion(ctx, 1)
+	if err != nil {
+		t.Fatalf("GetVersion 1: unexpected error")
+	}
+	if string(s1b) != "red" {
+		t.Fatalf("Version 1 should still  been red but was %q", string(s1b))
+	}
+}
+
+func TestVersionedSecretUnsupportedClient(t *testing.T) {
+	secPath := filepath.Join(t.TempDir(), "secrets.json")
+	if err := os.WriteFile(secPath, []byte("{}"), 0600); err != nil {
+		t.Fatalf("Write test data: %v", err)
+	}
+
+	ctx := t.Context()
+	cli, err := setec.NewFileClient(secPath)
+	if err != nil {
+		t.Fatalf("NewFileClient: unexpected error: %v", err)
+	}
+
+	st, err := setec.NewStore(ctx, setec.StoreConfig{
+		Client:      cli,
+		AllowLookup: true,
+		Logf:        logger.Discard,
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+
+	vs := st.VersionedSecret("secret_name")
+	err = vs.CreateVersion(ctx, 1, []byte("red"))
+	if !errors.Is(err, setec.ErrRequiresVersioningStoreClient) {
+		t.Fatalf("CreateVersion 1: should have failed with ErrRequiresVersioningStoreClient, but resulted in: %s", err)
+	}
+	_, err = vs.GetVersion(ctx, 1)
+	if !errors.Is(err, setec.ErrRequiresVersioningStoreClient) {
+		t.Fatalf("GetVersion 1: should have failed with ErrRequiresVersioningStoreClient, but resulted in: %s", err)
 	}
 }
 

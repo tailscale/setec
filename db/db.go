@@ -50,10 +50,10 @@ var (
 	// ErrNotFound is the error returned by DB methods when the
 	// database lacks a necessary secret or secret version.
 	ErrNotFound = errors.New("not found")
-	// ErrVersionTaken indicates that an attempt was made to create a
+	// ErrVersionClaimed indicates that an attempt was made to create a
 	// version of a secret that has at some point already been set,
 	// even if it has since been deleted.
-	ErrVersionTaken = errors.New("version is (or was previously) set")
+	ErrVersionClaimed = errors.New("version is already claimed")
 	// ErrInvalidVersion indicates that an attempt was made to create a
 	// version of a secret using an invalid version number (<=0).
 	ErrInvalidVersion = errors.New("invalid version")

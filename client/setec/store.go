@@ -24,6 +24,12 @@ import (
 	"tailscale.com/types/logger"
 )
 
+var (
+	// ErrRequiresVersioningStoreClient is returned by operations that require the configured [StoreClient]
+	// to be a [VersioningStoreClient] such as [Client].
+	ErrRequiresVersioningStoreClient = errors.New("operation requires a VersioningStoreClient such as Client")
+)
+
 // Store is a store that provides named secrets.
 type Store struct {
 	client      StoreClient // API client
@@ -74,7 +80,8 @@ func (s *Store) Metrics() *expvar.Map {
 // StoreConfig is the configuration for Store.
 type StoreConfig struct {
 	// Client is the API client used to fetch secrets from the service.
-	// The service URL must be non-empty.
+	// The service URL must be non-empty. If you intented to use [VersionedSecret]s,
+	// ensure that the configured [StoreClient] is a [VersioningStoreClient].
 	Client StoreClient
 
 	// Secrets are the names of secrets this Store should retrieve.
@@ -295,7 +302,7 @@ func (s *Store) Refresh(ctx context.Context) error {
 	_, err := s.single.Call(ctx, "poll", func(ctx context.Context) (Secret, error) {
 		s.countPolls.Add(1)
 		s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
-		updates := make(map[string]*api.SecretValue)
+		updates := make(map[string]*cachedSecret)
 		if err := s.poll(ctx, updates); err != nil {
 			s.countPollErrors.Add(1)
 			return nil, fmt.Errorf("[store] update poll failed: %w", err)
@@ -476,7 +483,7 @@ func StaticTextFile(path string) (Secret, error) {
 
 // hasExpired reports whether cs is an undeclared secret whose last access time
 // was longer ago than the expiry window.
-func (s *Store) hasExpired(cs *cachedSecret) bool {
+func (s *Store) hasExpired(cs cachedSecret) bool {
 	if cs.Declared {
 		return false // declared secrets do not expire
 	} else if s.expiryAge <= 0 {
@@ -489,15 +496,12 @@ func (s *Store) hasExpired(cs *cachedSecret) bool {
 // snapshotActive captures a point-in-time snapshot of the active names and
 // versions of all secrets known to the store. This permits an update poll to
 // do the time-consuming lookups outside the lock.
-func (s *Store) snapshotActive() map[string]secretState {
+func (s *Store) snapshotActive() map[string]cachedSecret {
 	s.active.Lock()
 	defer s.active.Unlock()
-	m := make(map[string]secretState)
+	m := make(map[string]cachedSecret)
 	for name, cs := range s.active.m {
-		m[name] = secretState{
-			expired: s.hasExpired(cs),
-			version: cs.Secret.Version,
-		}
+		m[name] = *cs
 	}
 	return m
 }
@@ -506,24 +510,53 @@ func (s *Store) snapshotActive() map[string]secretState {
 // It adds an entry to updates for each name that needs to be updated:
 // If the named secret has expired, the value is nil.
 // Otherwise, the value is a new secret version for that secret.
-func (s *Store) poll(ctx context.Context, updates map[string]*api.SecretValue) error {
+func (s *Store) poll(ctx context.Context, updates map[string]*cachedSecret) error {
 	var errs []error
-	for name, sv := range s.snapshotActive() {
+	for name, cs := range s.snapshotActive() {
 		// If the secret has expired, mark it for deletion.
-		if sv.expired {
+		if s.hasExpired(cs) {
 			updates[name] = nil // nil means "delete me"
 			continue
 		}
 
-		got, err := s.client.GetIfChanged(ctx, name, sv.version)
-		if errors.Is(err, api.ErrValueNotChanged) {
-			continue // all is well, but nothing to update
-		} else if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if got.Version != sv.version {
-			updates[name] = got
+		if cs.Versions == nil {
+			// Standard [Secret]
+			got, err := s.client.GetIfChanged(ctx, name, cs.Secret.Version)
+			if errors.Is(err, api.ErrValueNotChanged) {
+				continue // all is well, but nothing to update
+			} else if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if got.Version != cs.Secret.Version {
+				cs.Secret = got
+				updates[name] = &cs
+			}
+		} else {
+			// [VersionedSecret]
+			vclient, ok := s.client.(VersioningStoreClient)
+			if !ok {
+				errs = append(errs, ErrRequiresVersioningStoreClient)
+				continue
+			}
+			hasUpdate := false
+			for version, value := range cs.Versions {
+				got, err := vclient.GetVersion(ctx, name, version)
+				if errors.Is(err, api.ErrNotFound) {
+					hasUpdate = true
+					delete(cs.Versions, version)
+				} else if err != nil {
+					errs = append(errs, err)
+					continue
+				}
+				if !bytes.Equal(value, got.Value) {
+					hasUpdate = true
+					cs.Versions[version] = got.Value
+				}
+			}
+			if hasUpdate {
+				updates[name] = &cs
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -563,14 +596,14 @@ func (s *Store) run(ctx context.Context, interval time.Duration, done chan<- str
 
 // applyUpdates applies the specified updates to the secret values, and if a
 // cache is present flushes the data to the cache.
-func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
+func (s *Store) applyUpdates(updates map[string]*cachedSecret) error {
 	if len(updates) == 0 {
 		return nil // nothing to do
 	}
 	s.active.Lock()
 	defer s.active.Unlock()
-	for name, sv := range updates {
-		if sv == nil {
+	for name, u := range updates {
+		if u == nil {
 			// This is an undeclared secret that has expired.
 			// If there are no handles referring to it, remove it.
 			if _, ok := s.active.f[name]; ok {
@@ -591,8 +624,8 @@ func (s *Store) applyUpdates(updates map[string]*api.SecretValue) error {
 
 		// This is a new value for an unexpired secret.
 		// Note that new values do not update access times.
-		s.active.m[name].Secret = sv
-		s.logf("[store] update to version %d for secret %q", sv.Version, name)
+		s.active.m[name].Secret = u.Secret
+		s.logf("[store] update to version %d for secret %q", u.Secret.Version, name)
 
 		// Wake up any watchers pending on new values for this secret.
 		for _, w := range s.active.w[name] {
@@ -795,10 +828,14 @@ func (u *Updater[T]) Err() error {
 	return u.err
 }
 
+// cachedSecret is a cached secret, either a plain [Secret] where [cachedSecret.Secret]
+// tracks the active version of the secret, or a [VersionedSecret] that tracks multiple
+// versions of the secret at once.
 type cachedSecret struct {
-	Secret     *api.SecretValue `json:"secret"`
-	LastAccess int64            `json:"lastAccess,string"`
-	Declared   bool             `json:"-"` // not persisted
+	Secret     *api.SecretValue             `json:"secret"`
+	Versions   map[api.SecretVersion][]byte `json:"versions,omitempty"`
+	LastAccess int64                        `json:"lastAccess,string"`
+	Declared   bool                         `json:"-"` // not persisted
 
 	// Access time is seconds since the Unix epoch in UTC.
 }
@@ -810,14 +847,6 @@ func (c *cachedSecret) lastAccessTime() time.Time {
 		return time.Time{}
 	}
 	return time.Unix(c.LastAccess, 0).UTC()
-}
-
-// secretState is the current state of a secret captured during a snapshot.
-// The version is the currently-cached version of the secret.
-// If expired == true, the secret has expired and should be removed.
-type secretState struct {
-	expired bool
-	version api.SecretVersion
 }
 
 // Struct describes a struct value with tagged fields that should be populated
@@ -856,4 +885,120 @@ func (c StoreConfig) secretNames() ([]string, []*Fields, error) {
 		}
 	}
 	return sec, svs, nil
+}
+
+// VersionedSecret returns the [VersionedSecret] for a specific name.
+func (s *Store) VersionedSecret(name string) VersionedSecret {
+	return VersionedSecret{
+		s:    s,
+		name: name,
+	}
+}
+
+// VersionedSecret tracks multiple versions of a single secret in this [Store].
+type VersionedSecret struct {
+	s    *Store
+	name string
+}
+
+// GetVersion gets a specific version of a secret known by the [Store].
+// If this version is not yet known to the [Store], and lookups are enabled, it
+// attempts to fetch the latest active version of the secret from the service and
+// either adds it to the store or reports an error.
+func (vs VersionedSecret) GetVersion(ctx context.Context, version api.SecretVersion) ([]byte, error) {
+	s := vs.s
+	s.active.Lock()
+	cached := s.active.m[vs.name]
+	s.active.Unlock()
+
+	var secret []byte
+	if cached != nil {
+		secret = cached.Versions[version]
+	}
+	if secret != nil {
+		return secret, nil
+	}
+
+	vclient, ok := s.client.(VersioningStoreClient)
+	if !ok {
+		return nil, ErrRequiresVersioningStoreClient
+	}
+
+	// When lookups are enabled, multiple goroutines may race for the right to
+	// grab and cache a given secret, so singleflight the lookup for each secret
+	// under its own marker.
+
+	// If the winning caller's context doesn't already have a deadline,
+	// impose a safety fallback so requests do not stall forever if the
+	// infrastructure is farkakte.
+	dctx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		dctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
+
+	sec, err := s.single.Call(dctx, fmt.Sprintf("get:%s:%d", vs.name, version), func(ctx context.Context) (Secret, error) {
+		sv, err := vclient.GetVersion(ctx, vs.name, version)
+		if err != nil {
+			return nil, err
+		}
+		vs.storeVersionInternal(version, sv.Value)
+		return func() []byte { return sv.Value }, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sec(), nil
+}
+
+// CreateVersion attempts to create a new version of this secret on the service and
+// either adds it to the store or returns an error.
+func (vs VersionedSecret) CreateVersion(ctx context.Context, version api.SecretVersion, value []byte) error {
+	s := vs.s
+	vclient, ok := s.client.(VersioningStoreClient)
+	if !ok {
+		return ErrRequiresVersioningStoreClient
+	}
+
+	// When lookups are enabled, multiple goroutines may race for the right to
+	// grab and cache a given secret, so singleflight the creation for each secret
+	// under its own marker.
+
+	// If the winning caller's context doesn't already have a deadline,
+	// impose a safety fallback so requests do not stall forever if the
+	// infrastructure is farkakte.
+	dctx := ctx
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		dctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
+	_, err := s.single.Call(dctx, fmt.Sprintf("getOrCreate:%s:%d", vs.name, version), func(ctx context.Context) (Secret, error) {
+		err := vclient.CreateVersion(ctx, vs.name, version, value)
+		if err != nil {
+			return nil, err
+		}
+		vs.storeVersionInternal(version, value)
+		return nil, nil
+	})
+	return err
+}
+
+func (vs VersionedSecret) storeVersionInternal(version api.SecretVersion, value []byte) {
+	s := vs.s
+	s.active.Lock()
+	defer s.active.Unlock()
+	cs, ok := s.active.m[vs.name]
+	if !ok {
+		cs = &cachedSecret{Versions: map[api.SecretVersion][]byte{}}
+		s.logf("[store] adding new undeclared secret %q", vs.name)
+	}
+	cs.Versions[version] = value
+	cs.LastAccess = s.timeNow().Unix()
+	s.active.m[vs.name] = cs
+	if err := s.flushCacheLocked(); err != nil {
+		s.logf("WARNING: error flushing cache: %v", err)
+	}
 }

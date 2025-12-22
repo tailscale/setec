@@ -12,6 +12,7 @@ require (
 	github.com/creachadair/flax v0.0.5
 	github.com/creachadair/mds v0.25.15
 	github.com/creachadair/msync v0.8.1
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/google/go-cmp v0.7.0
 	github.com/tink-crypto/tink-go-awskms/v2 v2.1.0
 	github.com/tink-crypto/tink-go/v2 v2.6.0
