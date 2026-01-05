@@ -180,7 +180,7 @@ server's state directory.
 
 [acl]: https://tailscale.com/kb/1018/acls
 [admin-keys]: https://login.tailscale.com/admin/settings/keys
-[awsvault]: https://github.com/99designs/aws-vault
+[awsvault]: https://github.com/ByteNess/aws-vault
 [cli]: https://github.com/tailscale/setec/tree/main/cmd/setec
 [go]: https://golang.org/dl
 [grant]: https://tailscale.com/kb/1324/acl-grants
