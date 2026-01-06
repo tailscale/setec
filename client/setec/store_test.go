@@ -783,6 +783,49 @@ func TestNewFileCache(t *testing.T) {
 	})
 }
 
+func TestPartialRefresh(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "small", "1")
+	d.MustPut(d.Superuser, "large", "500")
+
+	ts := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ts.Mux)
+	defer hs.Close()
+
+	st, err := setec.NewStore(t.Context(), setec.StoreConfig{
+		Client:  setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do},
+		Secrets: []string{"small", "large"},
+	})
+	if err != nil {
+		t.Fatalf("NewStore: unexpected error: %v", err)
+	}
+	defer st.Close()
+
+	small := st.Secret("small")
+	if small.GetString() != "1" {
+		t.Errorf("Value of small before: got %q, want 1", small.GetString())
+	}
+
+	// Update small to a new value, and delete large.
+	// This means a refresh will partially fail (since "large" is now gone).
+	// But the update to "small" should still be observed.
+	d.MustActivate(d.Superuser, "small", d.MustPut(d.Superuser, "small", "2"))
+	if err := d.Actual.Delete(d.Superuser, "large"); err != nil {
+		t.Fatalf("Delete large: unexpected error: %v", err)
+	}
+
+	// Refreshing should still report an error.
+	if err := st.Refresh(t.Context()); err == nil {
+		t.Error("Refresh should have reported an error")
+	} else {
+		t.Logf("Refresh reported (expected) error: %v", err)
+	}
+
+	if small.GetString() != "2" {
+		t.Errorf("Value of small after: got %q, want 2", small.GetString())
+	}
+}
+
 func TestNilSecret(t *testing.T) {
 	var s setec.Secret
 
