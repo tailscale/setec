@@ -33,8 +33,8 @@ The service defines named _actions_ that are subject to access control:
 
 - `put`: Denotes permission to put a new value of a secret.
 
-- `create-version`: Denotes permission to create a specific version of a secret, but not
-   override an existing version.
+- `create-version`: Denotes permission to create a specific version of a
+   secret, but not overwrite an existing version.
 
 - `activate`: Denotes permission to set one one of of the available versions of
   a secret as the active one.
@@ -130,7 +130,10 @@ The service defines named _actions_ that are subject to access control:
   secret, the server reports the existing active version without modifying the
   store.
 
-- `/api/create-version`: Creates a specific version of a secret, sets its value and immediately activates that version. It fails if this version of the secret already has a value. The specified version must be > 0.
+- `/api/create-version`: Creates a new version of a secret, sets its value and
+  immediately activates that version. It fails if the specified version number
+  has already been used for this secret (even if deleted).  The specified
+  version number must be > 0.
 
   **Requires:** `create-version` permission for the specified name.
 
