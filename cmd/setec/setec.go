@@ -78,6 +78,7 @@ Most of the settings can be set via environment variables as well as flags.
     --backup-bucket        SETEC_BACKUP_BUCKET        string 	(optional)
 	--backup-bucket-region SETEC_BACKUP_BUCKET_REGION string 	(optional)
 	--backup-role          SETEC_BACKUP_ROLE          string 	(optional)
+	--login-server         SETEC_LOGIN_SERVER         string 	(optional)
 `,
 
 				SetFlags: command.Flags(flax.MustBind, &serverArgs),
@@ -166,6 +167,7 @@ var serverArgs struct {
 	BackupBucket       string `flag:"backup-bucket,default=$SETEC_BACKUP_BUCKET,Name of AWS S3 bucket to use for database backups"`
 	BackupBucketRegion string `flag:"backup-bucket-region,default=$SETEC_BACKUP_BUCKET_REGION,AWS region of the backup S3 bucket"`
 	BackupRole         string `flag:"backup-role,default=$SETEC_BACKUP_ROLE,Name of AWS IAM role to assume to write backups"`
+	LoginServer        string `flag:"login-server,default=$SETEC_LOGIN_SERVER,URL of control server to use for tsnet"`
 	Dev                bool   `flag:"dev,Run in developer mode"`
 }
 
@@ -220,8 +222,9 @@ func runServer(env *command.Env) error {
 	}
 
 	s := &tsnet.Server{
-		Dir:      filepath.Join(serverArgs.StateDir, "tsnet"),
-		Hostname: serverArgs.Hostname,
+		Dir:        filepath.Join(serverArgs.StateDir, "tsnet"),
+		Hostname:   serverArgs.Hostname,
+		ControlURL: serverArgs.LoginServer,
 	}
 
 	lc, err := s.LocalClient()
