@@ -29,6 +29,7 @@ import (
 	"github.com/creachadair/flax"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/client/setec"
+	"github.com/tailscale/setec/internal/tinktestutil"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go-awskms/v2/integration/awskms"
@@ -188,7 +189,7 @@ func runServer(env *command.Env) error {
 			serverArgs.Hostname = "setec-dev"
 		}
 		if serverArgs.KMSKeyName == "" {
-			kek = &dummyAEAD{
+			kek = &tinktestutil.DummyAEAD{
 				Name: "SetecDevOnlyDummyEncryption",
 			}
 		}
