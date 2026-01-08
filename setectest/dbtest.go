@@ -12,8 +12,8 @@ import (
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/db"
+	"github.com/tailscale/setec/internal/tinktestutil"
 	"github.com/tailscale/setec/types/api"
-	"github.com/tink-crypto/tink-go/v2/testutil"
 	"github.com/tink-crypto/tink-go/v2/tink"
 )
 
@@ -71,7 +71,7 @@ func NewDB(t *testing.T, opts *DBOptions) *DB {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "test.db")
-	key := &testutil.DummyAEAD{Name: "setectest.DB." + t.Name()}
+	key := &tinktestutil.DummyAEAD{Name: "setectest.DB." + t.Name()}
 	adb, err := db.Open(path, key, opts.auditWriter())
 	if err != nil {
 		t.Fatalf("Creating test DB: %v", err)

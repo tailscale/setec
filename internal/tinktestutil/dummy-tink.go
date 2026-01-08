@@ -14,14 +14,13 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-// This file is a copy of tink-go's https://github.com/tink-crypto/tink-go/blob/v2.1.0/testutil/testutil.go#L90-L130
-// with its type name unexported.
+// This file a copy of tink-go's https://github.com/tink-crypto/tink-go/blob/v2.1.0/testutil/testutil.go#L90-L130
 //
 // We do this to avoid https://github.com/tink-crypto/tink-go/issues/31 happening
 // in tink-go's testutil init function, which breaks our assumptions in CI
 // that things don't hit the network.
 
-package main
+package tinktestutil
 
 import (
 	"bytes"
@@ -30,11 +29,11 @@ import (
 	"fmt"
 )
 
-// dummyAEAD is a dummy implementation of AEAD interface. It "encrypts" data
+// DummyAEAD is a dummy implementation of AEAD interface. It "encrypts" data
 // with a simple serialization capturing the dummy name, plaintext, and
 // associated data, and "decrypts" it by reversing this and checking that the
 // name and associated data match.
-type dummyAEAD struct {
+type DummyAEAD struct {
 	Name string
 }
 
@@ -45,7 +44,7 @@ type dummyAEADData struct {
 }
 
 // Encrypt encrypts the plaintext.
-func (a *dummyAEAD) Encrypt(plaintext []byte, associatedData []byte) ([]byte, error) {
+func (a *DummyAEAD) Encrypt(plaintext []byte, associatedData []byte) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := gob.NewEncoder(buf)
 	err := encoder.Encode(dummyAEADData{
@@ -60,7 +59,7 @@ func (a *dummyAEAD) Encrypt(plaintext []byte, associatedData []byte) ([]byte, er
 }
 
 // Decrypt decrypts the ciphertext.
-func (a *dummyAEAD) Decrypt(ciphertext []byte, associatedData []byte) ([]byte, error) {
+func (a *DummyAEAD) Decrypt(ciphertext []byte, associatedData []byte) ([]byte, error) {
 	data := dummyAEADData{}
 	decoder := gob.NewDecoder(bytes.NewBuffer(ciphertext))
 	if err := decoder.Decode(&data); err != nil {
