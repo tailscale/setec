@@ -101,7 +101,7 @@ secret.
   previously used (initially 1, for a new secret).
   The `create-version` API method uses the version number specified by the caller.
 
-- Thereater, the active version changes in the following ways:
+- Thereafter, the active version changes in the following ways:
 
   The `activate` method updates the current active version to a specific
   existing value.
