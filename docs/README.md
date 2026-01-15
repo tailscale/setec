@@ -21,6 +21,7 @@ Setec is a lightweight secrets management service that uses Tailscale for access
 - [Operations and Maintenance](#operations-and-maintenance)
    - [Secret Rotation](#secret-rotation)
    - [Automatic Updates](#automatic-updates)
+   - [Explicit Version Management](#explicit-version-management)
    - [Bootstrapping and Availability](#bootstrapping-and-availability)
 - [Testing](#testing)
 
@@ -93,14 +94,24 @@ secret.
   version**. The active version is reported by default from the `get` method if
   the caller does not specify a specific version.
 
-- When a secret is first created, its initial value (version 1) becomes its
-  current active version.
+- When a secret is first created, its initial value becomes its current active
+  version.
 
-- Thereafter, the `activate` method must be used to update the current active
-  version. This ensures the operator of the service has precise control over
-  which version of a secret should be used at a time.
-   - The special `create-version` method automatically activates the set
-     version and does not require a call to `activate`.
+  The `put` API method assigns sequential versions starting from the largest
+  previously used (initially 1, for a new secret).
+  The `create-version` API method uses the version number specified by the caller.
+
+- Thereafter, the active version changes in the following ways:
+
+  The `activate` method updates the current active version to a specific
+  existing value.
+
+  A successful `create-version` method call automatically activates the new
+  version of the secret that it created.
+
+  Note that `put` does _not_ automatically update the active version, except
+  when creating the initial value of a new secret.
+
 
 ### Deleting Values
 
@@ -421,6 +432,26 @@ explicitly call the `Store` value's [`Refresh`][strefresh] method, which
 effects a poll of all known secrets synchronously. It is safe for the client to
 do this concurrently with a background poll; the store will coalesce the
 operations.
+
+### Explicit Version Management
+
+For some use cases, the caller may wish to explicitly control the version
+numbers of a secret. For example, a caller may wish to associate multiple
+secret values with one or more timestamps or other identifying values.
+
+To support this, the [API](api.md) supports a `create-version` method, allowing
+the caller to explicitly choose the version number assigned to a secret value.
+The `create-version` method automatically activates a newly-created version,
+but such values are otherwise normal, and can be fetched and deleted in the
+usual way. Note, however, that a particular version number cannot be reused
+once created, even if it is later deleted.
+
+Although it is safe to mix `put`, `activate` and `create-version` calls on the
+same secret, for clarity of use we recommend using _either_ `create-version`
+alone, _or_ `put` and `activate` together, but not both. Regardless which
+version management style you use, secret values can be [updated
+automatically](#automatic-updates) in the usual way.
+
 
 ### Bootstrapping and Availability
 
