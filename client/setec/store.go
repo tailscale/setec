@@ -299,12 +299,20 @@ func (s *Store) Refresh(ctx context.Context) error {
 		s.countPolls.Add(1)
 		s.latestPoll.Set(float64(time.Now().UTC().UnixMilli()) / 1000)
 		updates := make(map[string]*cachedSecret)
-		if err := s.poll(ctx, updates); err != nil {
+
+		// Count errors from polling, but do not report them until we have
+		// applied any updates that might have succeeded.
+		perr := s.poll(ctx, updates)
+		if perr != nil {
 			s.countPollErrors.Add(1)
-			return nil, fmt.Errorf("[store] update poll failed: %w", err)
 		}
 		if err := s.applyUpdates(updates); err != nil {
 			return nil, fmt.Errorf("[store] applying updates failed: %w", err)
+		} else if perr != nil {
+			if len(updates) != 0 {
+				return nil, fmt.Errorf("[store] update poll partially failed: %w", perr)
+			}
+			return nil, fmt.Errorf("[store] update poll failed: %w", perr)
 		}
 		return nil, nil
 	})
