@@ -87,6 +87,31 @@ type GetRequest struct {
 	UpdateIfChanged bool
 }
 
+// GetAllRequest is a request to get all the available versions of a secret.
+type GetAllRequest struct {
+	// Name is the name of the secret to fetch.
+	Name string
+
+	// SkipVersions, if non-empty, lists versions the caller already has and
+	// does not need to have returned. The server will not return any of the
+	// versions listed here.
+	SkipVersions []SecretVersion
+}
+
+// GetAllResponse is a response from a successful GetAllRequest.
+type GetAllResponse struct {
+	// Active is the current active version of the secret. It is set even if no
+	// secret values are returned.
+	Active SecretVersion
+
+	// Versions contains all the known versions of the secret.
+	Versions []SecretVersion
+
+	// Values contains all the known values of the secret, but omitting any
+	// versions that were listed in the SkipVersions field of the request.
+	Values []*SecretValue
+}
+
 // InfoRequest is a request for secret metadata.
 type InfoRequest struct {
 	// Name is the name of the secret whose metadata to return.
