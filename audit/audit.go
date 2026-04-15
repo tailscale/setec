@@ -68,11 +68,11 @@ type Writer struct {
 	enc *json.Encoder
 }
 
-// New returns a Writer that outputs audit log entries to w as JSON
-// objects. If w also implements io.Closer, Writer.Close closes w. If
-// w also implements a Sync method with the same signature as os.File,
-// Writer.Sync calls w.Sync.
-func New(w io.Writer) *Writer {
+// NewWriter returns a Writer that outputs audit log entries to w as JSON
+// objects. If w also implements [io.Closer], [Writer.Close] closes w.  If w
+// also implements a Sync method with the same signature as [os.File],
+// [Writer.Sync] calls w.Sync.
+func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:   w,
 		enc: json.NewEncoder(w),
@@ -86,7 +86,7 @@ func NewFile(path string) (*Writer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return New(f), nil
+	return NewWriter(f), nil
 }
 
 // Sync commits the current contents of the file to stable storage if

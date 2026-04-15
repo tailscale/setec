@@ -38,7 +38,7 @@ func TestNew(t *testing.T) {
 		_, err := server.New(ctx, server.Config{
 			DBPath:   path,
 			Key:      &tinktestutil.DummyAEAD{Name: t.Name()},
-			AuditLog: audit.New(io.Discard),
+			AuditLog: audit.NewWriter(io.Discard),
 			Mux:      http.NewServeMux(),
 		})
 		if err != nil {
@@ -47,7 +47,7 @@ func TestNew(t *testing.T) {
 	})
 	t.Run("DB", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "test.db")
-		kdb, err := db.Open(path, &tinktestutil.DummyAEAD{Name: t.Name()}, audit.New(io.Discard))
+		kdb, err := db.Open(path, &tinktestutil.DummyAEAD{Name: t.Name()}, audit.NewWriter(io.Discard))
 		if err != nil {
 			t.Fatalf("Open database: %v", err)
 		}
