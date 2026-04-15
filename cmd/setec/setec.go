@@ -69,16 +69,16 @@ Otherwise you must provide a --kms-key-name to use to encrypt the database.
 
 Most of the settings can be set via environment variables as well as flags.
 
-   --------------------------------------------------------------------
+   -------------------------------------------------------------------------
    Flag                    Variable                   Format    Default
-   --------------------------------------------------------------------
+   -------------------------------------------------------------------------
     --state-dir            SETEC_DIR                  path      (required)
     --hostname             SETEC_HOSTNAME             string    (required)
     --kms-key-name         SETEC_KMS_KEY_NAME         string    (required unless --dev)
-    --backup-bucket        SETEC_BACKUP_BUCKET        string 	(optional)
-	--backup-bucket-region SETEC_BACKUP_BUCKET_REGION string 	(optional)
-	--backup-role          SETEC_BACKUP_ROLE          string 	(optional)
-	--login-server         SETEC_LOGIN_SERVER         string 	(optional)
+    --backup-bucket        SETEC_BACKUP_BUCKET        string    (optional)
+    --backup-bucket-region SETEC_BACKUP_BUCKET_REGION string    (optional)
+    --backup-role          SETEC_BACKUP_ROLE          string    (optional)
+    --login-server         SETEC_LOGIN_SERVER         string    (optional)
 `,
 
 				SetFlags: command.Flags(flax.MustBind, &serverArgs),
