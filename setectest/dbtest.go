@@ -59,7 +59,7 @@ type DBOptions struct {
 
 func (o *DBOptions) auditWriter() *audit.Writer {
 	if o == nil || o.AuditLog == nil {
-		return audit.New(io.Discard)
+		return audit.NewWriter(io.Discard)
 	}
 	return o.AuditLog
 }

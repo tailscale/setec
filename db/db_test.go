@@ -29,7 +29,7 @@ func TestCreate(t *testing.T) {
 		t.Fatalf("reading back database: %v", err)
 	}
 
-	if _, err = db.Open(tdb.Path, tdb.Key, audit.New(io.Discard)); err != nil {
+	if _, err = db.Open(tdb.Path, tdb.Key, audit.NewWriter(io.Discard)); err != nil {
 		t.Fatalf("opening test DB: %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestList(t *testing.T) {
 		},
 	})
 
-	d2, err := db.Open(d.Path, d.Key, audit.New(io.Discard))
+	d2, err := db.Open(d.Path, d.Key, audit.NewWriter(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestGet(t *testing.T) {
 		}
 	}
 
-	d2, err := db.Open(d.Path, d.Key, audit.New(io.Discard))
+	d2, err := db.Open(d.Path, d.Key, audit.NewWriter(io.Discard))
 	if err != nil {
 		t.Fatalf("reopening database: %v", err)
 	}

@@ -17,7 +17,7 @@ import (
 func TestWriter(t *testing.T) {
 	out := new(testWriter)
 
-	w := audit.New(out)
+	w := audit.NewWriter(out)
 
 	entries := []*audit.Entry{
 		{

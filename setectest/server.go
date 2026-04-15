@@ -60,7 +60,7 @@ func (o *ServerOptions) whoIs() func(context.Context, string) (*apitype.WhoIsRes
 
 func (o *ServerOptions) auditLog() *audit.Writer {
 	if o == nil || o.AuditLog == nil {
-		return audit.New(io.Discard)
+		return audit.NewWriter(io.Discard)
 	}
 	return o.AuditLog
 }
