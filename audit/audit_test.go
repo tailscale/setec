@@ -9,8 +9,11 @@ import (
 	"errors"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
 )
 
@@ -91,3 +94,68 @@ func (t *testWriter) Sync() error  { t.synced = true; return t.syncErr }
 func (t *testWriter) Close() error { t.closed = true; return nil }
 
 func addrEqual(x, y netip.Addr) bool { return x == y }
+
+func TestReader(t *testing.T) {
+	// To test the audit.Reader, encode some fixed entries, then verify that
+	// reading them back in produces the same values.
+	base := time.Now()
+	entries := []*audit.Entry{{
+		ID:   123,
+		Time: base,
+		Principal: audit.Principal{
+			Hostname: "window",
+			IP:       netip.MustParseAddr("1.2.3.4"),
+			User:     "anathema",
+		},
+		Action:        acl.ActionGet,
+		Authorized:    true,
+		Secret:        "grey/mousie",
+		SecretVersion: 1,
+	}, {
+		ID:   456,
+		Time: base.Add(3 * time.Second),
+		Principal: audit.Principal{
+			Hostname: "bookshelf",
+			IP:       netip.MustParseAddr("2.3.4.5"),
+			User:     "zuul",
+		},
+		Action:        acl.ActionPut,
+		Authorized:    true,
+		Secret:        "brown/rabbit",
+		SecretVersion: 4,
+	}, {
+		ID:   789,
+		Time: base.Add(5 * time.Second),
+		Principal: audit.Principal{
+			Hostname: "fireplace",
+			IP:       netip.MustParseAddr("3.4.5.6"),
+			Tags:     []string{"tag:asha", "tag:athena"},
+		},
+		Action:        acl.ActionActivate,
+		Authorized:    false,
+		Secret:        "white/mushroom",
+		SecretVersion: 101,
+	}}
+
+	// Write the test log entries out into a memory buffer.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for i, e := range entries {
+		if err := enc.Encode(e); err != nil {
+			t.Fatalf("Encode entry %d: %v", i+1, err)
+		}
+	}
+
+	// Scan back through the buffer to decode the entries.
+	var got []*audit.Entry
+	for e, err := range audit.NewReader(&buf).All() {
+		if err != nil {
+			t.Errorf("Next entry: unexpected error: %v", err)
+			continue
+		}
+		got = append(got, e)
+	}
+	if diff := cmp.Diff(got, entries, cmpopts.EquateComparable(netip.Addr{})); diff != "" {
+		t.Errorf("Read results (-got, +want):\n%s", diff)
+	}
+}
