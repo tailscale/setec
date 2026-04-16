@@ -406,7 +406,7 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	bs, err := json.Marshal(resp)
 	if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)
-		http.Error(w, "failed to encode respnse", http.StatusInternalServerError)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return
 	}
 
