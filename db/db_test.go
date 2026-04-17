@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -47,88 +48,147 @@ func TestCreate(t *testing.T) {
 	}
 }
 
-func TestList(t *testing.T) {
-	d := setectest.NewDB(t, nil)
-	id := d.Superuser
+func TestInfo(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
 
-	checkList := func(d *db.DB, want []*api.SecretInfo) {
-		t.Helper()
-		l, err := d.List(id)
+		if info, err := d.Actual.Info(d.Superuser, "test"); err == nil {
+			t.Errorf("Info test: got %+v, want error", info)
+		}
+
+		d.MustPut(d.Superuser, "test", "foo")
+
+		info, err := d.Actual.Info(d.Superuser, "test")
 		if err != nil {
-			t.Fatalf("listing secrets: %v", err)
+			t.Fatalf("Info test: unexpected error: %v", err)
 		}
-		if diff := cmp.Diff(l, want); diff != "" {
-			t.Fatalf("unexpected secret list (-got+want):\n%s", diff)
+		if diff := cmp.Diff(info, &api.SecretInfo{
+			Name:          "test",
+			Versions:      []api.SecretVersion{1},
+			ActiveVersion: 1,
+			LastAccess:    time.Now(),
+		}); diff != "" {
+			t.Errorf("Info test (-got, +want):\n%s", diff)
 		}
-	}
 
-	checkList(d.Actual, []*api.SecretInfo(nil))
+		// Touch the value again after some time, and verify we reflected that in
+		// the results of a subsequent info lookup.
+		time.Sleep(time.Second)
+		d.MustPut(d.Superuser, "test", "bar")
 
-	d.MustPut(id, "test", "foo")
-	checkList(d.Actual, []*api.SecretInfo{
-		{
-			Name:          "test",
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
-	})
-
-	d.MustPut(id, "test", "bar")
-	checkList(d.Actual, []*api.SecretInfo{
-		{
+		info2, err := d.Actual.Info(d.Superuser, "test")
+		if err != nil {
+			t.Fatalf("Info test: unexpected error: %v", err)
+		}
+		if diff := cmp.Diff(info2, &api.SecretInfo{
 			Name:          "test",
 			Versions:      []api.SecretVersion{1, 2},
-			ActiveVersion: 1,
-		},
+			ActiveVersion: 1, // unchanged
+			LastAccess:    time.Now(),
+		}); diff != "" {
+			t.Errorf("Info test (-got, +want):\n%s", diff)
+		}
 	})
+}
 
-	d.MustPut(id, "test2", "quux")
-	checkList(d.Actual, []*api.SecretInfo{
-		{
-			Name:          "test",
-			Versions:      []api.SecretVersion{1, 2},
-			ActiveVersion: 1,
-		},
-		{
-			Name:          "test2",
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
-	})
+func TestList(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		d := setectest.NewDB(t, nil)
+		id := d.Superuser
 
-	d.MustActivate(id, "test", 2)
-	checkList(d.Actual, []*api.SecretInfo{
-		{
-			Name:          "test",
-			Versions:      []api.SecretVersion{1, 2},
-			ActiveVersion: 2,
-		},
-		{
-			Name:          "test2",
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
-	})
+		checkList := func(d *db.DB, want []*api.SecretInfo) {
+			t.Helper()
+			l, err := d.List(id)
+			if err != nil {
+				t.Fatalf("listing secrets: %v", err)
+			}
+			if diff := cmp.Diff(l, want); diff != "" {
+				t.Fatalf("unexpected secret list (-got+want):\n%s", diff)
+			}
+		}
+		wait := func(d time.Duration) time.Time { time.Sleep(d); return time.Now() }
 
-	d2, err := db.Open(db.Config{
-		Path:      d.Path,
-		AccessKey: d.Key,
-		AuditLog:  audit.NewWriter(io.Discard),
-	})
-	if err != nil {
-		t.Fatalf("reopening database: %v", err)
-	}
-	checkList(d2, []*api.SecretInfo{
-		{
-			Name:          "test",
-			Versions:      []api.SecretVersion{1, 2},
-			ActiveVersion: 2,
-		},
-		{
-			Name:          "test2",
-			Versions:      []api.SecretVersion{1},
-			ActiveVersion: 1,
-		},
+		checkList(d.Actual, nil)
+
+		op1 := wait(0)
+		d.MustPut(id, "test", "foo")
+		checkList(d.Actual, []*api.SecretInfo{
+			{
+				Name:          "test",
+				Versions:      []api.SecretVersion{1},
+				ActiveVersion: 1,
+				LastAccess:    op1,
+			},
+		})
+
+		op1 = wait(time.Second)
+		d.MustPut(id, "test", "bar")
+		checkList(d.Actual, []*api.SecretInfo{
+			{
+				Name:          "test",
+				Versions:      []api.SecretVersion{1, 2},
+				ActiveVersion: 1,
+				LastAccess:    op1,
+			},
+		})
+
+		op2 := wait(time.Second)
+		d.MustPut(id, "test2", "quux")
+		checkList(d.Actual, []*api.SecretInfo{
+			{
+				Name:          "test",
+				Versions:      []api.SecretVersion{1, 2},
+				ActiveVersion: 1,
+				LastAccess:    op1,
+			},
+			{
+				Name:          "test2",
+				Versions:      []api.SecretVersion{1},
+				ActiveVersion: 1,
+				LastAccess:    op2,
+			},
+		})
+
+		op1 = wait(time.Second)
+		d.MustActivate(id, "test", 2)
+		checkList(d.Actual, []*api.SecretInfo{
+			{
+				Name:          "test",
+				Versions:      []api.SecretVersion{1, 2},
+				ActiveVersion: 2,
+				LastAccess:    op1,
+			},
+			{
+				Name:          "test2",
+				Versions:      []api.SecretVersion{1},
+				ActiveVersion: 1,
+				LastAccess:    op2,
+			},
+		})
+
+		// Reopen the database, and verify that we got the same state.
+		// Note that in this case, we did not provide an index, so these records
+		// do not have last-access times (that is fine).
+		d2, err := db.Open(db.Config{
+			Path:      d.Path,
+			AccessKey: d.Key,
+			AuditLog:  audit.NewWriter(io.Discard),
+		})
+		if err != nil {
+			t.Fatalf("reopening database: %v", err)
+		}
+		checkList(d2, []*api.SecretInfo{
+			{
+				Name:          "test",
+				Versions:      []api.SecretVersion{1, 2},
+				ActiveVersion: 2,
+			},
+			{
+				Name:          "test2",
+				Versions:      []api.SecretVersion{1},
+				ActiveVersion: 1,
+			},
+		})
 	})
 }
 
