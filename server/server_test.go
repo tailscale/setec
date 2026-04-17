@@ -47,7 +47,11 @@ func TestNew(t *testing.T) {
 	})
 	t.Run("DB", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "test.db")
-		kdb, err := db.Open(path, &tinktestutil.DummyAEAD{Name: t.Name()}, audit.NewWriter(io.Discard))
+		kdb, err := db.Open(db.Config{
+			Path:      path,
+			AccessKey: &tinktestutil.DummyAEAD{Name: t.Name()},
+			AuditLog:  audit.NewWriter(io.Discard),
+		})
 		if err != nil {
 			t.Fatalf("Open database: %v", err)
 		}

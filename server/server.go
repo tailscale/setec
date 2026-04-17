@@ -109,7 +109,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	kdb := cfg.DB
 	if kdb == nil {
 		var err error
-		kdb, err = db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
+		kdb, err = db.Open(db.Config{
+			Path:      cfg.DBPath,
+			AccessKey: cfg.Key,
+			AuditLog:  cfg.AuditLog,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("opening DB: %w", err)
 		}
