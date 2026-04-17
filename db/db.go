@@ -59,21 +59,35 @@ var (
 	ErrInvalidVersion = errors.New("invalid version")
 )
 
+// Config carries the parameters required to construct a [DB].
+type Config struct {
+	// Path is the path of the database file, it must be non-empty.
+	Path string
+
+	// AccessKey is the key (KEK) used to decrypt the data-encryption key (DEK)
+	// to read the contents of the database. It must be non-nil.
+	AccessKey tink.AEAD
+
+	// AuditLog is the log writer used to capture audit logs.
+	// It must be non-nil.
+	AuditLog *audit.Writer
+}
+
 // Open loads the secrets database at path, decrypting it using key.
 // If no database exists at path, a new empty database is created.
-func Open(path string, key tink.AEAD, auditLog *audit.Writer) (*DB, error) {
-	if auditLog == nil {
+func Open(c Config) (*DB, error) {
+	if c.AuditLog == nil {
 		return nil, errors.New("must provide an audit.Writer to db.Open")
 	}
 
-	kv, err := openOrCreateKV(path, key)
+	kv, err := openOrCreateKV(c.Path, c.AccessKey)
 	if err != nil {
 		return nil, err
 	}
 
 	ret := &DB{
 		kv:       kv,
-		auditLog: auditLog,
+		auditLog: c.AuditLog,
 	}
 
 	return ret, nil
@@ -100,14 +114,14 @@ func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secre
 	if !authorized {
 		errs = append(errs, ErrAccessDenied)
 	}
-	err := db.auditLog.WriteEntries(&audit.Entry{
+
+	if err := db.auditLog.WriteEntries(&audit.Entry{
 		Principal:     caller.Principal,
 		Action:        action,
 		Secret:        secret,
 		SecretVersion: secretVersion,
 		Authorized:    authorized,
-	})
-	if err != nil {
+	}); err != nil {
 		errs = append(errs, fmt.Errorf("writing audit log: %w", err))
 	}
 	return multierr.New(errs...)
