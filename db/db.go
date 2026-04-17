@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
@@ -35,6 +36,7 @@ type DB struct {
 	mu       sync.Mutex
 	kv       *kv
 	auditLog *audit.Writer
+	index    AccessIndex
 }
 
 // We might store some of setec's configuration in the secrets
@@ -71,6 +73,10 @@ type Config struct {
 	// AuditLog is the log writer used to capture audit logs.
 	// It must be non-nil.
 	AuditLog *audit.Writer
+
+	// AccessIndex, if non-nil, is used to initialize the last-access index for
+	// the contents of the database. If nil, a new empty index is created.
+	AccessIndex AccessIndex
 }
 
 // Open loads the secrets database at path, decrypting it using key.
@@ -85,9 +91,15 @@ func Open(c Config) (*DB, error) {
 		return nil, err
 	}
 
+	index := c.AccessIndex
+	if index == nil {
+		index = make(AccessIndex)
+	}
+
 	ret := &DB{
 		kv:       kv,
 		auditLog: c.AuditLog,
+		index:    index,
 	}
 
 	return ret, nil
@@ -114,15 +126,28 @@ func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secre
 	if !authorized {
 		errs = append(errs, ErrAccessDenied)
 	}
-
-	if err := db.auditLog.WriteEntries(&audit.Entry{
+	entry := &audit.Entry{
 		Principal:     caller.Principal,
 		Action:        action,
 		Secret:        secret,
 		SecretVersion: secretVersion,
 		Authorized:    authorized,
-	}); err != nil {
+	}
+	if err := db.auditLog.WriteEntries(entry); err != nil {
 		errs = append(errs, fmt.Errorf("writing audit log: %w", err))
+	}
+
+	// If there were no errors, meaning the access is allowed and we
+	// successfully recorded a log entry, and the operation is not "info",
+	// update the last-access index.
+	//
+	// Note that we do not yet know, at this point, whether the operation will
+	// succeed: For example, someone may have tried to access a secret version
+	// that does not exist). We still treat this as an access, because we are
+	// using the log as the source of truth, and we allowed the operation on the
+	// secret.
+	if len(errs) == 0 && action != acl.ActionInfo {
+		db.index[secret] = LastAccess{Time: entry.Time}
 	}
 	return multierr.New(errs...)
 }
@@ -176,6 +201,9 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+		if a, ok := db.index[name]; ok {
+			info.LastAccess = a.Time
+		}
 		ret = append(ret, info)
 	}
 	slices.SortFunc(ret, func(a, b *api.SecretInfo) int { return strings.Compare(a.Name, b.Name) })
@@ -184,37 +212,44 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 
 // Info returns metadata for the given secret.
 func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if err := db.checkAndLog(caller, acl.ActionInfo, name, 0); err != nil {
 		return nil, err
 	}
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return db.kv.info(name)
+	info, err := db.kv.info(name)
+	if err != nil {
+		return nil, err
+	}
+	if a, ok := db.index[name]; ok {
+		info.LastAccess = a.Time
+	}
+	return info, nil
 }
 
 // Get returns a secret's active value.
 func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
 		return nil, err
 	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	return db.kv.get(name)
 }
 
 // GetConditional returns a secret's active value if it is different from oldVersion.
 // If the active version is the same as oldVersion, it reports api.ErrValueNotChanged.
 func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	// This case is special in that we only log an access if the condition
 	// succeeds and we report a fresh value to the caller. However, we still
 	// want a log if authorization fails.
 	if !caller.Permissions.Allow(acl.ActionGet, name) {
 		return nil, db.checkAndLog(caller, acl.ActionGet, name, 0)
 	}
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	sv, err := db.kv.get(name)
 	if err != nil {
 		return nil, err
@@ -232,12 +267,11 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 
 // GetVersion returns a secret's value at a specific version.
 func (db *DB) GetVersion(caller Caller, name string, version api.SecretVersion) (*api.SecretValue, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if err := db.checkAndLog(caller, acl.ActionGet, name, version); err != nil {
 		return nil, err
 	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	return db.kv.getVersion(name, version)
 }
 
@@ -249,12 +283,12 @@ func (db *DB) Put(caller Caller, name string, value []byte) (api.SecretVersion, 
 	if name == "" {
 		return 0, errors.New("empty secret name")
 	}
-	if err := db.checkAndLog(caller, acl.ActionPut, name, 0); err != nil {
-		return 0, err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLog(caller, acl.ActionPut, name, 0); err != nil {
+		return 0, err
+	}
 	if strings.HasPrefix(name, configPrefix) {
 		return db.putConfigLocked(name, value)
 	}
@@ -283,12 +317,12 @@ func (db *DB) CreateVersion(caller Caller, name string, version api.SecretVersio
 	if version <= 0 {
 		return ErrInvalidVersion
 	}
-	if err := db.checkAndLog(caller, acl.ActionCreateVersion, name, version); err != nil {
-		return err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLog(caller, acl.ActionCreateVersion, name, version); err != nil {
+		return err
+	}
 	return db.kv.createVersion(name, version, value)
 }
 
@@ -297,12 +331,12 @@ func (db *DB) Activate(caller Caller, name string, version api.SecretVersion) er
 	if name == "" {
 		return errors.New("empty secret name")
 	}
-	if err := db.checkAndLog(caller, acl.ActionActivate, name, version); err != nil {
-		return err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLog(caller, acl.ActionActivate, name, version); err != nil {
+		return err
+	}
 	if strings.HasPrefix(name, configPrefix) {
 		return db.activateConfigLocked(name, version)
 	}
@@ -319,12 +353,12 @@ func (db *DB) activateConfigLocked(name string, version api.SecretVersion) error
 // DeleteVersion deletes the specified version of a secret.
 // It reports an error without change if version is the active version.
 func (db *DB) DeleteVersion(caller Caller, name string, version api.SecretVersion) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
 	if err := db.checkAndLog(caller, acl.ActionDelete, name, version); err != nil {
 		return err
 	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
 		return db.deleteConfigVersionLocked(cfg, version)
 	}
@@ -339,12 +373,11 @@ func (db *DB) deleteConfigVersionLocked(name string, version api.SecretVersion) 
 // not exist, this is a no-op without error, provided the caller has access to
 // delete things at all.
 func (db *DB) Delete(caller Caller, name string) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
 	if err := db.checkAndLog(caller, acl.ActionDelete, name, 0); err != nil {
 		return err
 	}
-
-	db.mu.Lock()
-	defer db.mu.Unlock()
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
 		return db.deleteConfigLocked(cfg)
 	}
@@ -353,4 +386,13 @@ func (db *DB) Delete(caller Caller, name string) error {
 
 func (db *DB) deleteConfigLocked(name string) error {
 	return fmt.Errorf("unknown config value %q", name)
+}
+
+// AccessIndex is an index mapping secret names to last-access records.
+type AccessIndex map[string]LastAccess
+
+// LastAccess is an entry in an [AccessIndex], recording information about the
+// most recent access to a given secret.
+type LastAccess struct {
+	Time time.Time // in UTC
 }
