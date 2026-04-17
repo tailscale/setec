@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -127,6 +128,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	tmpl := template.New("").Funcs(template.FuncMap{
 		"lastSecretVersion": func(i int, l []api.SecretVersion) bool {
 			return i == len(l)-1
+		},
+		"timeFormat": func(t time.Time, fmt string) string {
+			return t.Format(fmt)
 		},
 	})
 	if _, err := tmpl.ParseFS(dashboardTemplates, "templates/*.html"); err != nil {
