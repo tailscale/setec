@@ -27,8 +27,10 @@ import (
 
 	"github.com/creachadair/command"
 	"github.com/creachadair/flax"
+	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
 	"github.com/tailscale/setec/client/setec"
+	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/internal/tinktestutil"
 	"github.com/tailscale/setec/server"
 	"github.com/tailscale/setec/types/api"
@@ -246,15 +248,21 @@ func runServer(env *command.Env) error {
 	mux := http.NewServeMux()
 	tsweb.Debugger(mux)
 
-	audit, err := audit.NewFile(filepath.Join(serverArgs.StateDir, "audit.log"))
+	auditPath := filepath.Join(serverArgs.StateDir, "audit.log")
+	audit, err := audit.NewFile(auditPath)
 	if err != nil {
 		return fmt.Errorf("opening audit log: %w", err)
+	}
+	index, err := loadAccessIndex(auditPath)
+	if err != nil {
+		return fmt.Errorf("reading access index: %w", err)
 	}
 
 	srv, err := server.New(env.Context(), server.Config{
 		DBPath:             filepath.Join(serverArgs.StateDir, "database"),
 		Key:                kek,
 		AuditLog:           audit,
+		AccessIndex:        index, // may be nil, that's OK
 		WhoIs:              lc.WhoIs,
 		BackupBucket:       serverArgs.BackupBucket,
 		BackupBucketRegion: serverArgs.BackupBucketRegion,
@@ -319,13 +327,17 @@ func runList(env *command.Env) error {
 	}
 
 	tw := newTabWriter(os.Stdout)
-	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\n")
+	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\tLAST ACCESSED\n")
 	for _, s := range secrets {
 		vers := make([]string, 0, len(s.Versions))
 		for _, v := range s.Versions {
 			vers = append(vers, v.String())
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\n", s.Name, s.ActiveVersion, strings.Join(vers, ","))
+		lastAccess := "(unknown)"
+		if !s.LastAccess.IsZero() {
+			lastAccess = s.LastAccess.Format(time.RFC3339)
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.ActiveVersion, strings.Join(vers, ","), lastAccess)
 	}
 	return tw.Flush()
 }
@@ -348,6 +360,9 @@ func runInfo(env *command.Env, name string) error {
 	fmt.Fprintf(tw, "Name:\t%s\n", info.Name)
 	fmt.Fprintf(tw, "Active version:\t%s\n", info.ActiveVersion)
 	fmt.Fprintf(tw, "Versions:\t%s\n", strings.Join(vers, ", "))
+	if !info.LastAccess.IsZero() {
+		fmt.Fprintf(tw, "Last access:\t%s\n", info.LastAccess.Format(time.RFC3339))
+	}
 	return tw.Flush()
 }
 
@@ -578,4 +593,28 @@ func checkPutText(value []byte) ([]byte, error) {
 	// specify its disposition. Report an error.
 	return nil, errors.New("text value has surrounding whitespace, " +
 		"specify --verbatim to keep the space or --trim-space to remove it")
+}
+
+// loadAccessIndex reads an audit log from the specified path and constructs a
+// last-access index from it. It reports nil without error if the path does not
+// exist.
+func loadAccessIndex(path string) (db.AccessIndex, error) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil // ok, nothing to do
+	} else if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	index := make(db.AccessIndex)
+	for e, err := range audit.NewReader(f).All() {
+		if err != nil {
+			return nil, err
+		}
+		if !e.Authorized || e.Action == acl.ActionInfo {
+			continue // this is not a successful access
+		}
+		index[e.Secret] = db.LastAccess{Time: e.Time}
+	}
+	return index, nil
 }
