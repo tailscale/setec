@@ -50,6 +50,10 @@ type Config struct {
 	// It must be set if DB is nil.
 	AuditLog *audit.Writer
 
+	// AccessIndex, if set, is used to initialize the last-access index for the
+	// database. It is ignored if DB is set.
+	AccessIndex db.AccessIndex
+
 	// WhoIs is a function that reports an identity for a client IP
 	// address. Outside of tests, it will be the WhoIs of a Tailscale
 	// LocalClient.
@@ -110,9 +114,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if kdb == nil {
 		var err error
 		kdb, err = db.Open(db.Config{
-			Path:      cfg.DBPath,
-			AccessKey: cfg.Key,
-			AuditLog:  cfg.AuditLog,
+			Path:        cfg.DBPath,
+			AccessKey:   cfg.Key,
+			AuditLog:    cfg.AuditLog,
+			AccessIndex: cfg.AccessIndex,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("opening DB: %w", err)

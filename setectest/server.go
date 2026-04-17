@@ -27,6 +27,7 @@ import (
 
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
+	"github.com/tailscale/setec/db"
 	"github.com/tailscale/setec/server"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
@@ -49,6 +50,10 @@ type ServerOptions struct {
 	// AuditLog is where audit logs are written; if nil, audit logs are
 	// discarded without error.
 	AuditLog *audit.Writer
+
+	// AccessIndex is used to initialize the last-access index for the database.
+	// If nil, the database creates its own empty index.
+	AccessIndex db.AccessIndex
 }
 
 func (o *ServerOptions) whoIs() func(context.Context, string) (*apitype.WhoIsResponse, error) {
@@ -65,6 +70,13 @@ func (o *ServerOptions) auditLog() *audit.Writer {
 	return o.AuditLog
 }
 
+func (o *ServerOptions) accessIndex() db.AccessIndex {
+	if o == nil {
+		return nil
+	}
+	return o.AccessIndex
+}
+
 // NewServer constructs a new Server that reads data from db and persists for
 // the duration of the test and subtests governed by t. When t ends, the server
 // and its database are cleaned up. If opts == nil, default options are used
@@ -75,10 +87,11 @@ func NewServer(t *testing.T, db *DB, opts *ServerOptions) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	s, err := server.New(ctx, server.Config{
-		DB:       db.Actual,
-		AuditLog: opts.auditLog(),
-		WhoIs:    opts.whoIs(),
-		Mux:      mux,
+		DB:          db.Actual,
+		AuditLog:    opts.auditLog(),
+		AccessIndex: opts.accessIndex(),
+		WhoIs:       opts.whoIs(),
+		Mux:         mux,
 	})
 	if err != nil {
 		t.Fatalf("Creating new server: %v", err)
