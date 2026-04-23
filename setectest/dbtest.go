@@ -59,7 +59,7 @@ type DBOptions struct {
 
 func (o *DBOptions) auditWriter() *audit.Writer {
 	if o == nil || o.AuditLog == nil {
-		return audit.New(io.Discard)
+		return audit.NewWriter(io.Discard)
 	}
 	return o.AuditLog
 }
@@ -72,7 +72,11 @@ func NewDB(t *testing.T, opts *DBOptions) *DB {
 
 	path := filepath.Join(t.TempDir(), "test.db")
 	key := &tinktestutil.DummyAEAD{Name: "setectest.DB." + t.Name()}
-	adb, err := db.Open(path, key, opts.auditWriter())
+	adb, err := db.Open(db.Config{
+		Path:      path,
+		AccessKey: key,
+		AuditLog:  opts.auditWriter(),
+	})
 	if err != nil {
 		t.Fatalf("Creating test DB: %v", err)
 	}

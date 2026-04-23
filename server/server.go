@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -49,6 +50,10 @@ type Config struct {
 	// AuditLog is the writer to use for audit logs.
 	// It must be set if DB is nil.
 	AuditLog *audit.Writer
+
+	// AccessIndex, if set, is used to initialize the last-access index for the
+	// database. It is ignored if DB is set.
+	AccessIndex db.AccessIndex
 
 	// WhoIs is a function that reports an identity for a client IP
 	// address. Outside of tests, it will be the WhoIs of a Tailscale
@@ -109,7 +114,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	kdb := cfg.DB
 	if kdb == nil {
 		var err error
-		kdb, err = db.Open(cfg.DBPath, cfg.Key, cfg.AuditLog)
+		kdb, err = db.Open(db.Config{
+			Path:        cfg.DBPath,
+			AccessKey:   cfg.Key,
+			AuditLog:    cfg.AuditLog,
+			AccessIndex: cfg.AccessIndex,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("opening DB: %w", err)
 		}
@@ -118,6 +128,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	tmpl := template.New("").Funcs(template.FuncMap{
 		"lastSecretVersion": func(i int, l []api.SecretVersion) bool {
 			return i == len(l)-1
+		},
+		"timeFormat": func(t time.Time, fmt string) string {
+			return t.Format(fmt)
 		},
 	})
 	if _, err := tmpl.ParseFS(dashboardTemplates, "templates/*.html"); err != nil {
@@ -406,7 +419,7 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	bs, err := json.Marshal(resp)
 	if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)
-		http.Error(w, "failed to encode respnse", http.StatusInternalServerError)
+		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 		return
 	}
 
