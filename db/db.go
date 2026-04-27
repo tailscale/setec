@@ -59,6 +59,9 @@ var (
 	// ErrInvalidVersion indicates that an attempt was made to create a
 	// version of a secret using an invalid version number (<=0).
 	ErrInvalidVersion = errors.New("invalid version")
+	// ErrInvalidParams indicates that one or more request parameters are
+	// invalid (in an otherwise-authorized request).
+	ErrInvalidParams = errors.New("invalid parameters")
 )
 
 // Config carries the parameters required to construct a [DB].
@@ -386,6 +389,21 @@ func (db *DB) Delete(caller Caller, name string) error {
 
 func (db *DB) deleteConfigLocked(name string) error {
 	return fmt.Errorf("unknown config value %q", name)
+}
+
+// SetInfo updates the metadata of the specified secret with the specified
+// values.  It reports an error if the secret does not exist, or if the
+func (db *DB) SetInfo(caller Caller, name string, update api.SecretInfoUpdate) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	if err := db.checkAndLog(caller, acl.ActionSetInfo, name, 0); err != nil {
+		return err
+	}
+	if strings.HasPrefix(name, configPrefix) {
+		return fmt.Errorf("cannot set info for config %q", name)
+	}
+	return db.kv.setInfo(name, update)
 }
 
 // AccessIndex is an index mapping secret names to last-access records.
