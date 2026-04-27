@@ -39,6 +39,7 @@ import (
 	"golang.org/x/term"
 	"tailscale.com/tsnet"
 	"tailscale.com/tsweb"
+	"tailscale.com/types/opt"
 )
 
 func main() {
@@ -96,6 +97,13 @@ Most of the settings can be set via environment variables as well as flags.
 				Usage: "<secret-name>",
 				Help:  "Get metadata for the specified secret.",
 				Run:   command.Adapt(runInfo),
+			},
+			{
+				Name:     "set-info",
+				Usage:    "<secret-name>",
+				Help:     `Set metadata for the specified secret.`,
+				SetFlags: command.Flags(flax.MustBind, &setInfoArgs),
+				Run:      command.Adapt(runSetInfo),
 			},
 			{
 				Name:  "get",
@@ -327,7 +335,7 @@ func runList(env *command.Env) error {
 	}
 
 	tw := newTabWriter(os.Stdout)
-	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\tLAST ACCESSED\n")
+	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\tLAST ACCESSED\tDESCRIPTION\n")
 	for _, s := range secrets {
 		vers := make([]string, 0, len(s.Versions))
 		for _, v := range s.Versions {
@@ -337,7 +345,8 @@ func runList(env *command.Env) error {
 		if !s.LastAccess.IsZero() {
 			lastAccess = s.LastAccess.Format(time.RFC3339)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.ActiveVersion, strings.Join(vers, ","), lastAccess)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
+			s.Name, s.ActiveVersion, strings.Join(vers, ","), lastAccess, s.Description)
 	}
 	return tw.Flush()
 }
@@ -358,12 +367,33 @@ func runInfo(env *command.Env, name string) error {
 	}
 	tw := newTabWriter(os.Stdout)
 	fmt.Fprintf(tw, "Name:\t%s\n", info.Name)
+	if d := info.Description; d != "" {
+		fmt.Fprintf(tw, "Description:\t%s\n", d)
+	}
 	fmt.Fprintf(tw, "Active version:\t%s\n", info.ActiveVersion)
 	fmt.Fprintf(tw, "Versions:\t%s\n", strings.Join(vers, ", "))
 	if !info.LastAccess.IsZero() {
 		fmt.Fprintf(tw, "Last access:\t%s\n", info.LastAccess.Format(time.RFC3339))
 	}
 	return tw.Flush()
+}
+
+var setInfoArgs struct {
+	Description string `flag:"description,Set the human-readable description of the secret"`
+}
+
+func runSetInfo(env *command.Env, name string) error {
+	c, err := newClient()
+	if err != nil {
+		return err
+	}
+
+	// If more metadata fields are added, this list will need to be extended.
+	var update api.SecretInfoUpdate
+	if env.IsFlagSet("description") {
+		update.Description = opt.ValueOf(setInfoArgs.Description)
+	}
+	return c.SetInfo(env.Context(), name, update)
 }
 
 var getArgs struct {
