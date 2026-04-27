@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tailscale/setec/acl"
@@ -23,6 +24,7 @@ import (
 	"github.com/tailscale/setec/types/api"
 	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tailcfg"
+	"tailscale.com/types/opt"
 )
 
 func TestNew(t *testing.T) {
@@ -166,4 +168,65 @@ func TestServerStatus(t *testing.T) {
 	if err := cli.DeleteVersion(ctx, "ok/test", ov2); err != nil {
 		t.Errorf("DeleteVersion %v: unexpected error %v", ov2, err)
 	}
+}
+
+func TestServerSetInfo(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	d.MustPut(d.Superuser, "pet", "miniature giant space hamster")
+
+	ss := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ss.Mux)
+	defer hs.Close()
+
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+	checkDesc := func(t *testing.T, name, want string) {
+		t.Helper()
+		info, err := cli.Info(t.Context(), name)
+		if err != nil {
+			t.Fatalf("Info %q: unexpected error: %v", name, err)
+		}
+		if got := info.Description; got != want {
+			t.Errorf("Info %q: got description %q, want %q", name, got, want)
+		}
+	}
+	checkSetInfo := func(t *testing.T, name string, update api.SecretInfoUpdate, want string) {
+		t.Helper()
+		err := cli.SetInfo(t.Context(), name, update)
+		if want != "" {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("SetInfo %q: got error %v, want %q", name, err, want)
+			}
+		} else if err != nil {
+			t.Errorf("SetInfo %q: unexpected error: %v", name, err)
+		}
+	}
+
+	// Case 1: The initial description is empty.
+	checkDesc(t, "pet", "")
+
+	// Case 2: An empty update should fail.
+	checkSetInfo(t, "pet", api.SecretInfoUpdate{}, "no updates specified")
+
+	// Case 3: A too-long description should fail, leaving the secret unchanged.
+	checkSetInfo(t, "pet", api.SecretInfoUpdate{
+		Description: opt.ValueOf(strings.Repeat("q", 2000)),
+	}, "description too long")
+	checkDesc(t, "pet", "")
+
+	// Case 4: A valid update should succeed, and update the secret.
+	checkSetInfo(t, "pet", api.SecretInfoUpdate{
+		Description: opt.ValueOf("Boo"),
+	}, "")
+	checkDesc(t, "pet", "Boo")
+
+	// Case 5: An update to a non-existent secret should fail.
+	checkSetInfo(t, "fruit", api.SecretInfoUpdate{
+		Description: opt.ValueOf("apple"),
+	}, "not found")
+
+	// Case 6: An empty description is valid (distinct from "unspecified").
+	checkSetInfo(t, "pet", api.SecretInfoUpdate{
+		Description: opt.ValueOf(""),
+	}, "")
+	checkDesc(t, "pet", "")
 }
