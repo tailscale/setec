@@ -13,6 +13,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"unicode/utf8"
 
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go/v2/aead"
@@ -91,15 +92,22 @@ type secret struct {
 	// We rely on api.SecretVersion being a type encoding/json will translate to
 	// a JSON string (currently an integer).
 	Versions map[api.SecretVersion]byteString
+
 	// ActiveVersion is the secret version that gets returned to
 	// clients who don't ask for a specific version of the secret.
 	ActiveVersion api.SecretVersion
+
 	// LatestVersion is the highest version that has already been used
 	// by a previous Put or CreateVersion.
 	LatestVersion api.SecretVersion
+
 	// DeletedVersions tracks versions that were previously set but
 	// have since been deleted. These are not permitted to be set again.
 	DeletedVersions map[api.SecretVersion]bool
+
+	// Description is an optional human-readable text describing the role or
+	// purpose of the secret. A valid Description must be UTF-8 encoded.
+	Description string
 }
 
 // byteString is an alias for a string, but encodes to JSON as the conventional
@@ -279,12 +287,51 @@ func (kv *kv) info(name string) (*api.SecretInfo, error) {
 	info := &api.SecretInfo{
 		Name:          name,
 		ActiveVersion: secret.ActiveVersion,
+		Description:   secret.Description,
 	}
 	for v := range secret.Versions {
 		info.Versions = append(info.Versions, v)
 	}
 	slices.Sort(info.Versions)
 	return info, nil
+}
+
+// setInfo applies an update to the metadata of a secret.
+func (kv *kv) setInfo(name string, update api.SecretInfoUpdate) error {
+	secret := kv.secrets[name]
+	if secret == nil {
+		return ErrNotFound
+	}
+
+	// Make a shallow copy of the secret so we can revert if save fails.
+	// An update does not modify the maps, so it's safe to share them.
+	backup := *secret
+
+	// Apply any set fields of the update.
+	// We require that at least one update is set. When adding new metadata
+	// fields, add additional conditional blocks below.
+
+	var hasUpdate bool
+	if desc, ok := update.Description.GetOk(); ok {
+		if !utf8.ValidString(desc) {
+			return fmt.Errorf("%w: description is not utf-8", ErrInvalidParams)
+		} else if len(desc) > api.MaxDescriptionBytes {
+			return fmt.Errorf("%w: description too long (%d bytes > %d)",
+				ErrInvalidParams, len(desc), api.MaxDescriptionBytes)
+		}
+		secret.Description = desc
+		hasUpdate = true
+	}
+	// .. add additional fields here
+
+	if !hasUpdate {
+		return fmt.Errorf("%w: no updates specified", ErrInvalidParams)
+	}
+	if err := kv.save(); err != nil {
+		*secret = backup // restore
+		return err
+	}
+	return nil
 }
 
 // get returns a secret's active value.
