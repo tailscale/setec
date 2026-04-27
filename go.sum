@@ -62,12 +62,12 @@ github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
 github.com/coreos/go-iptables v0.7.1-0.20240112124308-65c67c9f46e6 h1:8h5+bWd7R6AYUslN6c6iuZWTKsKxUFDlpnmilO6R2n0=
 github.com/coreos/go-iptables v0.7.1-0.20240112124308-65c67c9f46e6/go.mod h1:Qe8Bv2Xik5FyTXwgIbLAnv2sWSBmvWdFETJConOQ//Q=
-github.com/creachadair/command v0.2.0 h1:qTA9cMMhZePAxFoNdnk6F6nn94s1qPndIg9hJbqI9cA=
-github.com/creachadair/command v0.2.0/go.mod h1:j+Ar+uYnFsHpkMeV9kGj6lJ45y9u2xqtg8FYy6cm+0o=
+github.com/creachadair/command v0.2.4 h1:dR4ZbdaSIortWQ/ZvGrNlohmtNECJaFyTIMuqlRBSV4=
+github.com/creachadair/command v0.2.4/go.mod h1:oZUQWtYwThS+2p91b5OcGhdJuYpSIe5JhExYgQecxU0=
 github.com/creachadair/flax v0.0.5 h1:zt+CRuXQASxwQ68e9GHAOnEgAU29nF0zYMHOCrL5wzE=
 github.com/creachadair/flax v0.0.5/go.mod h1:F1PML0JZLXSNDMNiRGK2yjm5f+L9QCHchyHBldFymj8=
-github.com/creachadair/mds v0.25.15 h1:i8CUqtfgbCqbvZ++L7lm8No3cOeic9YKF4vHEvEoj+Y=
-github.com/creachadair/mds v0.25.15/go.mod h1:XtMfRW15sjd1iOi1Z1k+dq0pRsR5xPbulpoTrpyhk8w=
+github.com/creachadair/mds v0.27.1 h1:GlO1tPbrsaoafkF6mz7dFutkGXAtIfQLI450u0ypqwA=
+github.com/creachadair/mds v0.27.1/go.mod h1:dMBTCSy3iS3dwh4Rb1zxeZz2d7K8+N24GCTsayWtQRI=
 github.com/creachadair/msync v0.8.1 h1:QRd8si3qZ2Q4TaDL7tS/MG/lFE3YND7U7J9fy42eAFM=
 github.com/creachadair/msync v0.8.1/go.mod h1:dt0bscS09J8Ie3AdccK9JpCb7LfStaDGlAmDLukOlY4=
 github.com/creachadair/taskgroup v0.13.2 h1:3KyqakBuFsm3KkXi/9XIb0QcA8tEzLHLgaoidf0MdVc=

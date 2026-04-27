@@ -8,9 +8,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.27
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.44.0
-	github.com/creachadair/command v0.2.0
+	github.com/creachadair/command v0.2.4
 	github.com/creachadair/flax v0.0.5
-	github.com/creachadair/mds v0.25.15
+	github.com/creachadair/mds v0.27.1
 	github.com/creachadair/msync v0.8.1
 	github.com/google/go-cmp v0.7.0
 	github.com/google/go-tpm v0.9.8
