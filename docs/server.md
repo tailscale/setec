@@ -39,14 +39,35 @@ The server stores secrets in an encrypted file in the state directory. When the
 server starts, it requires an **access key** to unlock the database.
 
 In production, the server fetches an access key from an AWS KMS secret, whose
-ARN is specified via the `--kms-key-name` flag. As of 05-May-2024, AWS KMS is
-the only supported production access key store; we may add others in the
-future.
+ARN is specified via the `--kms-key-name` flag.
 
 This mode also requires access to the AWS APIs: If you are running the server
 in AWS (e.g., an EC2 VM), you would typically grant access to the key via an
 IAM role on the VM. Alternatively, you can plumb in credentials via environment
 variables, for example using [`aws-vault`][awsvault] or similar.
+
+For environments where no KMS is available (e.g., a homelab), the server can
+instead use a key sealed to a local TPM 2.0 device, via the `--tpm-key-file`
+flag. The flag names a file in which the server stores a TPM-sealed key blob;
+if the file does not exist, the server generates a new key, seals it to the
+TPM, and saves it there on first startup. The sealed blob can only be unsealed
+by the TPM that created it, so a copy of the database and the key file together
+cannot be decrypted elsewhere. By default the server uses the TPM at
+`/dev/tpmrm0`; use `--tpm-device` to select a different device.
+
+This also works with virtual TPMs, such as the vTPM QEMU (and thus Proxmox) can
+attach to a VM. Two caveats to be aware of when using a vTPM:
+
+- A vTPM's state is stored by the host (for Proxmox, in the VM's "TPM State"
+  disk), so an attacker who obtains that state along with the database can
+  still recover the key. Snapshots or backups of the whole VM including its
+  TPM state likewise contain everything needed to decrypt the database.
+- The key is bound to that vTPM instance: if the VM is rebuilt without
+  preserving its TPM state, the database becomes unrecoverable. Keep a
+  separate backup of the database key if you cannot afford that risk.
+
+On systems without TPM support (such as Darwin), the server will report an
+error at startup when `--tpm-key-file` is set.
 
 For development and testing purposes, the server also supports a `--dev` flag,
 which runs using a "dummy" static access key. **This mode is not secure for
@@ -90,6 +111,20 @@ production use**, but is useful for testing and debugging integrations locally.
         --state-dir=$HOME/setec-dev \
         --kms-key-name=arn:aws:kms:us-east-1:123456789012:key/b8074b63-13c0-4345-a9d8-e236267d2af1
     ```
+
+3. To run a self-hosted setec server using a key sealed to the local TPM:
+
+    ```shell
+    TS_AUTHKEY=tskey-auth-kf4k3k3y4testCNTRL-ZmFrZSBrZXkgZm9yIHRlc3Q setec server \
+      --hostname=secrets \
+      --state-dir=$HOME/setec-state \
+      --tpm-key-file=$HOME/setec-state/setec-tpm.key
+    ```
+
+    The sealed key file is created automatically the first time the server
+    starts. The server must be able to read the TPM device (`/dev/tpmrm0` by
+    default): either run it as root, or add its user to the group owning the
+    device.
 
 Once you have run the server, you can grant access to it via your [tailnet
 ACL][acl]. For example, if we assume your server's Tailscale address is

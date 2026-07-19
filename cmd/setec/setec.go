@@ -31,6 +31,7 @@ import (
 	"github.com/tailscale/setec/client/setec"
 	"github.com/tailscale/setec/internal/tinktestutil"
 	"github.com/tailscale/setec/server"
+	"github.com/tailscale/setec/tpmkey"
 	"github.com/tailscale/setec/types/api"
 	"github.com/tink-crypto/tink-go-awskms/v2/integration/awskms"
 	"github.com/tink-crypto/tink-go/v2/tink"
@@ -65,7 +66,17 @@ the node on the tailnet.
 With the --dev flag, the server runs with a dummy KMS. This mode is intended
 for debugging and is NOT SAFE for production use.
 
-Otherwise you must provide a --kms-key-name to use to encrypt the database.
+Otherwise you must provide a key to encrypt the database, using exactly one of:
+
+  --kms-key-name - to use a key stored in AWS KMS.
+
+  --tpm-key-file - to use a key sealed to a TPM 2.0 device, stored in the named
+                   file. If the file does not exist, a new key is generated,
+                   sealed to the TPM, and saved there. The sealed key can only
+                   be used by the TPM that created it.
+
+                   Use the --tpm-device flag to select a TPM device; the
+                   default is /dev/tpmrm0
 
 Most of the settings can be set via environment variables as well as flags.
 
@@ -74,7 +85,9 @@ Most of the settings can be set via environment variables as well as flags.
    -------------------------------------------------------------------------
     --state-dir            SETEC_DIR                  path      (required)
     --hostname             SETEC_HOSTNAME             string    (required)
-    --kms-key-name         SETEC_KMS_KEY_NAME         string    (required unless --dev)
+    --kms-key-name         SETEC_KMS_KEY_NAME         string    (see above)
+    --tpm-key-file         SETEC_TPM_KEY_FILE         path      (see above)
+    --tpm-device           SETEC_TPM_DEVICE           path      (/dev/tpmrm0)
     --backup-bucket        SETEC_BACKUP_BUCKET        string    (optional)
     --backup-bucket-region SETEC_BACKUP_BUCKET_REGION string    (optional)
     --backup-role          SETEC_BACKUP_ROLE          string    (optional)
@@ -164,6 +177,8 @@ var serverArgs struct {
 	StateDir           string `flag:"state-dir,default=$SETEC_STATE_DIR,Server state directory"`
 	Hostname           string `flag:"hostname,default=$SETEC_HOSTNAME,Tailscale hostname to use"`
 	KMSKeyName         string `flag:"kms-key-name,default=$SETEC_KMS_KEY_NAME,Name of KMS key to use for database encryption"`
+	TPMKeyFile         string `flag:"tpm-key-file,default=$SETEC_TPM_KEY_FILE,Path of TPM-sealed key file to use for database encryption (created if missing)"`
+	TPMDevice          string `flag:"tpm-device,default=$SETEC_TPM_DEVICE,Path of TPM device to use with --tpm-key-file"`
 	BackupBucket       string `flag:"backup-bucket,default=$SETEC_BACKUP_BUCKET,Name of AWS S3 bucket to use for database backups"`
 	BackupBucketRegion string `flag:"backup-bucket-region,default=$SETEC_BACKUP_BUCKET_REGION,AWS region of the backup S3 bucket"`
 	BackupRole         string `flag:"backup-role,default=$SETEC_BACKUP_ROLE,Name of AWS IAM role to assume to write backups"`
@@ -188,14 +203,15 @@ func runServer(env *command.Env) error {
 		if serverArgs.Hostname == "" {
 			serverArgs.Hostname = "setec-dev"
 		}
-		if serverArgs.KMSKeyName == "" {
+
+		log.Printf("dev mode: state dir is %q", serverArgs.StateDir)
+		log.Printf("dev mode: hostname is %q", serverArgs.Hostname)
+		if serverArgs.KMSKeyName == "" && serverArgs.TPMKeyFile == "" {
+			log.Println("dev mode: using dummy KMS, NOT SAFE FOR PRODUCTION USE")
 			kek = &tinktestutil.DummyAEAD{
 				Name: "SetecDevOnlyDummyEncryption",
 			}
 		}
-		log.Printf("dev mode: state dir is %q", serverArgs.StateDir)
-		log.Printf("dev mode: hostname is %q", serverArgs.Hostname)
-		log.Println("dev mode: using dummy KMS, NOT SAFE FOR PRODUCTION USE")
 	}
 
 	if serverArgs.StateDir == "" {
@@ -205,19 +221,37 @@ func runServer(env *command.Env) error {
 		return errors.New("--hostname must be specified")
 	}
 	if kek == nil {
-		if serverArgs.KMSKeyName == "" {
-			return errors.New("--kms-key-name must be specified")
-		}
-		// Tink requires prefixing the key identifier with a URI
-		// scheme that identifies the correct backend to use.
-		uri := "aws-kms://" + serverArgs.KMSKeyName
-		kmsClient, err := awskms.NewClientWithOptions(uri)
-		if err != nil {
-			return fmt.Errorf("creating AWS KMS client: %v", err)
-		}
-		kek, err = kmsClient.GetAEAD(uri)
-		if err != nil {
-			return fmt.Errorf("getting KMS key handle: %v", err)
+		switch {
+		case serverArgs.KMSKeyName != "" && serverArgs.TPMKeyFile != "":
+			return errors.New("--kms-key-name and --tpm-key-file are mutually exclusive")
+		case serverArgs.KMSKeyName != "":
+			// Tink requires prefixing the key identifier with a URI
+			// scheme that identifies the correct backend to use.
+			uri := "aws-kms://" + serverArgs.KMSKeyName
+			kmsClient, err := awskms.NewClientWithOptions(uri)
+			if err != nil {
+				return fmt.Errorf("creating AWS KMS client: %v", err)
+			}
+			kek, err = kmsClient.GetAEAD(uri)
+			if err != nil {
+				return fmt.Errorf("getting KMS key handle: %v", err)
+			}
+		case serverArgs.TPMKeyFile != "":
+			devPath := serverArgs.TPMDevice
+			if devPath == "" {
+				devPath = tpmkey.DefaultDevice
+			}
+			device, err := tpmkey.OpenDevicePath(devPath)
+			if err != nil {
+				return fmt.Errorf("opening TPM device %q: %v", devPath, err)
+			}
+
+			kek, err = tpmkey.OpenOrCreate(device, serverArgs.TPMKeyFile)
+			if err != nil {
+				return fmt.Errorf("opening TPM-sealed key file: %v", err)
+			}
+		default:
+			return errors.New("either --kms-key-name or --tpm-key-file must be specified")
 		}
 	}
 
