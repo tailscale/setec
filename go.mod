@@ -13,6 +13,7 @@ require (
 	github.com/creachadair/mds v0.25.15
 	github.com/creachadair/msync v0.8.1
 	github.com/google/go-cmp v0.7.0
+	github.com/google/go-tpm v0.9.8
 	github.com/tink-crypto/tink-go-awskms/v2 v2.1.0
 	github.com/tink-crypto/tink-go/v2 v2.6.0
 	golang.org/x/term v0.38.0
@@ -47,6 +48,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/btree v1.1.2 // indirect
+	github.com/google/go-tpm-tools v0.4.9 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
@@ -81,6 +83,6 @@ require (
 	golang.org/x/tools v0.39.0 // indirect
 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gvisor.dev/gvisor v0.0.0-20250205023644-9414b50a5633 // indirect
 )
