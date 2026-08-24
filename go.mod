@@ -17,7 +17,6 @@ require (
 	github.com/tink-crypto/tink-go-awskms/v2 v2.1.0
 	github.com/tink-crypto/tink-go/v2 v2.6.0
 	golang.org/x/term v0.45.0
-	honnef.co/go/tools v0.8.1
 	tailscale.com v1.102.3
 )
 
@@ -83,4 +82,7 @@ require (
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
+	honnef.co/go/tools v0.8.1 // indirect
 )
+
+tool honnef.co/go/tools/cmd/staticcheck
