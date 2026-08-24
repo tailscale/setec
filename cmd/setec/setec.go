@@ -1,6 +1,8 @@
 // Copyright (c) Tailscale Inc & contributors
 // SPDX-License-Identifier: BSD-3-Clause
 
+//lint:file-ignore SA4023 Depends on build tag
+
 // Program setec is a secret management server that vends secrets over
 // Tailscale, and a client tool to communicate with that server.
 package main
