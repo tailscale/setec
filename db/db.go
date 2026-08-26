@@ -244,16 +244,29 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	// This case is special in that we only log an access if the condition
-	// succeeds and we report a fresh value to the caller. However, we still
-	// want a log if authorization fails.
+	// This case is special in that we usually only log an access if the
+	// condition succeeds and we report a fresh value to the caller.
+	// However, we still always want a log if authorization fails.
 	if !caller.Permissions.Allow(acl.ActionGet, name) {
 		return nil, db.checkAndLogLocked(caller, acl.ActionGet, name, 0)
 	}
+
 	sv, err := db.kv.get(name)
 	if err != nil {
 		return nil, err
 	} else if sv.Version == oldVersion {
+		// As noted above, we usually do not audit log conditional fetches for
+		// unchnaged values. However, we do want to update the timestamp
+		// occasionally, since conditional access still denotes "interest" in the
+		// secret.  Therefore, we will write a log if it has been "a while", even
+		// if the value is the same.
+		const conditionalUpdateInterval = 24 * time.Hour
+		if time.Since(db.index[name].Time) > conditionalUpdateInterval {
+			// This is not expected to report an error, but fail closed in case it does.
+			if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
+				return nil, err
+			}
+		}
 		return nil, api.ErrValueNotChanged
 	}
 
