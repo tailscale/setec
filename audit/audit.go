@@ -155,7 +155,7 @@ func (r Reader) All() iter.Seq2[*Entry, error] {
 		for {
 			var next Entry
 			if err := r.dec.Decode(&next); err != nil {
-				if err == io.EOF || err == io.ErrUnexpectedEOF {
+				if err == io.EOF {
 					return // no more elements available
 				}
 				yield(nil, err)
