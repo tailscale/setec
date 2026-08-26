@@ -116,11 +116,11 @@ type Caller struct {
 	Permissions acl.Rules
 }
 
-// checkAndLog verifies that caller can perform action on secret, and
-// writes an appropriate audit log entry.
+// checkAndLogLocked verifies that caller can perform action on secret, and
+// writes an appropriate audit log entry. The caller must hold db.mu.
 // The caller must not perform the requested operation if an error is
 // returned.
-func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secretVersion api.SecretVersion) error {
+func (db *DB) checkAndLogLocked(caller Caller, action acl.Action, secret string, secretVersion api.SecretVersion) error {
 	var errs []error
 	authorized := caller.Permissions.Allow(action, secret)
 	if !authorized {
@@ -214,7 +214,7 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionInfo, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionInfo, name, 0); err != nil {
 		return nil, err
 	}
 
@@ -232,7 +232,7 @@ func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
 func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
 		return nil, err
 	}
 	return db.kv.get(name)
@@ -248,7 +248,7 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 	// succeeds and we report a fresh value to the caller. However, we still
 	// want a log if authorization fails.
 	if !caller.Permissions.Allow(acl.ActionGet, name) {
-		return nil, db.checkAndLog(caller, acl.ActionGet, name, 0)
+		return nil, db.checkAndLogLocked(caller, acl.ActionGet, name, 0)
 	}
 	sv, err := db.kv.get(name)
 	if err != nil {
@@ -259,7 +259,7 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 
 	// Reaching here, we have a value we need to deliver back to the caller, and
 	// we must write an audit log. We already know it's authorized.
-	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
 		return nil, err
 	}
 	return sv, nil
@@ -269,7 +269,7 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 func (db *DB) GetVersion(caller Caller, name string, version api.SecretVersion) (*api.SecretValue, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionGet, name, version); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, version); err != nil {
 		return nil, err
 	}
 	return db.kv.getVersion(name, version)
@@ -286,7 +286,7 @@ func (db *DB) Put(caller Caller, name string, value []byte) (api.SecretVersion, 
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionPut, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionPut, name, 0); err != nil {
 		return 0, err
 	}
 	if strings.HasPrefix(name, configPrefix) {
@@ -320,7 +320,7 @@ func (db *DB) CreateVersion(caller Caller, name string, version api.SecretVersio
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionCreateVersion, name, version); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionCreateVersion, name, version); err != nil {
 		return err
 	}
 	return db.kv.createVersion(name, version, value)
@@ -334,7 +334,7 @@ func (db *DB) Activate(caller Caller, name string, version api.SecretVersion) er
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionActivate, name, version); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionActivate, name, version); err != nil {
 		return err
 	}
 	if strings.HasPrefix(name, configPrefix) {
@@ -356,7 +356,7 @@ func (db *DB) DeleteVersion(caller Caller, name string, version api.SecretVersio
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
-	if err := db.checkAndLog(caller, acl.ActionDelete, name, version); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionDelete, name, version); err != nil {
 		return err
 	}
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
@@ -375,7 +375,7 @@ func (db *DB) deleteConfigVersionLocked(name string, version api.SecretVersion) 
 func (db *DB) Delete(caller Caller, name string) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	if err := db.checkAndLog(caller, acl.ActionDelete, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionDelete, name, 0); err != nil {
 		return err
 	}
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
