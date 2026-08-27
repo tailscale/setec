@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/tailscale/setec/acl"
 	"github.com/tailscale/setec/audit"
@@ -35,6 +36,7 @@ type DB struct {
 	mu       sync.Mutex
 	kv       *kv
 	auditLog *audit.Writer
+	index    AccessIndex
 }
 
 // We might store some of setec's configuration in the secrets
@@ -59,21 +61,45 @@ var (
 	ErrInvalidVersion = errors.New("invalid version")
 )
 
+// Config carries the parameters required to construct a [DB].
+type Config struct {
+	// Path is the path of the database file, it must be non-empty.
+	Path string
+
+	// AccessKey is the key (KEK) used to decrypt the data-encryption key (DEK)
+	// to read the contents of the database. It must be non-nil.
+	AccessKey tink.AEAD
+
+	// AuditLog is the log writer used to capture audit logs.
+	// It must be non-nil.
+	AuditLog *audit.Writer
+
+	// AccessIndex, if non-nil, is used to initialize the last-access index for
+	// the contents of the database. If nil, a new empty index is created.
+	AccessIndex AccessIndex
+}
+
 // Open loads the secrets database at path, decrypting it using key.
 // If no database exists at path, a new empty database is created.
-func Open(path string, key tink.AEAD, auditLog *audit.Writer) (*DB, error) {
-	if auditLog == nil {
+func Open(c Config) (*DB, error) {
+	if c.AuditLog == nil {
 		return nil, errors.New("must provide an audit.Writer to db.Open")
 	}
 
-	kv, err := openOrCreateKV(path, key)
+	kv, err := openOrCreateKV(c.Path, c.AccessKey)
 	if err != nil {
 		return nil, err
 	}
 
+	index := c.AccessIndex
+	if index == nil {
+		index = make(AccessIndex)
+	}
+
 	ret := &DB{
 		kv:       kv,
-		auditLog: auditLog,
+		auditLog: c.AuditLog,
+		index:    index,
 	}
 
 	return ret, nil
@@ -90,25 +116,38 @@ type Caller struct {
 	Permissions acl.Rules
 }
 
-// checkAndLog verifies that caller can perform action on secret, and
-// writes an appropriate audit log entry.
+// checkAndLogLocked verifies that caller can perform action on secret, and
+// writes an appropriate audit log entry. The caller must hold db.mu.
 // The caller must not perform the requested operation if an error is
 // returned.
-func (db *DB) checkAndLog(caller Caller, action acl.Action, secret string, secretVersion api.SecretVersion) error {
+func (db *DB) checkAndLogLocked(caller Caller, action acl.Action, secret string, secretVersion api.SecretVersion) error {
 	var errs []error
 	authorized := caller.Permissions.Allow(action, secret)
 	if !authorized {
 		errs = append(errs, ErrAccessDenied)
 	}
-	err := db.auditLog.WriteEntries(&audit.Entry{
+	entry := &audit.Entry{
 		Principal:     caller.Principal,
 		Action:        action,
 		Secret:        secret,
 		SecretVersion: secretVersion,
 		Authorized:    authorized,
-	})
-	if err != nil {
+	}
+	if err := db.auditLog.WriteEntries(entry); err != nil {
 		errs = append(errs, fmt.Errorf("writing audit log: %w", err))
+	}
+
+	// If there were no errors, meaning the access is allowed and we
+	// successfully recorded a log entry, and the operation is not "info",
+	// update the last-access index.
+	//
+	// Note that we do not yet know, at this point, whether the operation will
+	// succeed: For example, someone may have tried to access a secret version
+	// that does not exist). We still treat this as an access, because we are
+	// using the log as the source of truth, and we allowed the operation on the
+	// secret.
+	if len(errs) == 0 && action != acl.ActionInfo {
+		db.index[secret] = LastAccess{Time: entry.Time}
 	}
 	return multierr.New(errs...)
 }
@@ -162,6 +201,9 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 		if err != nil {
 			return nil, err
 		}
+		if a, ok := db.index[name]; ok {
+			info.LastAccess = a.Time
+		}
 		ret = append(ret, info)
 	}
 	slices.SortFunc(ret, func(a, b *api.SecretInfo) int { return strings.Compare(a.Name, b.Name) })
@@ -170,47 +212,67 @@ func (db *DB) List(caller Caller) ([]*api.SecretInfo, error) {
 
 // Info returns metadata for the given secret.
 func (db *DB) Info(caller Caller, name string) (*api.SecretInfo, error) {
-	if err := db.checkAndLog(caller, acl.ActionInfo, name, 0); err != nil {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionInfo, name, 0); err != nil {
 		return nil, err
 	}
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
-	return db.kv.info(name)
+	info, err := db.kv.info(name)
+	if err != nil {
+		return nil, err
+	}
+	if a, ok := db.index[name]; ok {
+		info.LastAccess = a.Time
+	}
+	return info, nil
 }
 
 // Get returns a secret's active value.
 func (db *DB) Get(caller Caller, name string) (*api.SecretValue, error) {
-	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
-		return nil, err
-	}
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
+		return nil, err
+	}
 	return db.kv.get(name)
 }
 
 // GetConditional returns a secret's active value if it is different from oldVersion.
 // If the active version is the same as oldVersion, it reports api.ErrValueNotChanged.
 func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVersion) (*api.SecretValue, error) {
-	// This case is special in that we only log an access if the condition
-	// succeeds and we report a fresh value to the caller. However, we still
-	// want a log if authorization fails.
-	if !caller.Permissions.Allow(acl.ActionGet, name) {
-		return nil, db.checkAndLog(caller, acl.ActionGet, name, 0)
-	}
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	// This case is special in that we usually only log an access if the
+	// condition succeeds and we report a fresh value to the caller.
+	// However, we still always want a log if authorization fails.
+	if !caller.Permissions.Allow(acl.ActionGet, name) {
+		return nil, db.checkAndLogLocked(caller, acl.ActionGet, name, 0)
+	}
+
 	sv, err := db.kv.get(name)
 	if err != nil {
 		return nil, err
 	} else if sv.Version == oldVersion {
+		// As noted above, we usually do not audit log conditional fetches for
+		// unchnaged values. However, we do want to update the timestamp
+		// occasionally, since conditional access still denotes "interest" in the
+		// secret.  Therefore, we will write a log if it has been "a while", even
+		// if the value is the same.
+		const conditionalUpdateInterval = 24 * time.Hour
+		if time.Since(db.index[name].Time) > conditionalUpdateInterval {
+			// This is not expected to report an error, but fail closed in case it does.
+			if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
+				return nil, err
+			}
+		}
 		return nil, api.ErrValueNotChanged
 	}
 
 	// Reaching here, we have a value we need to deliver back to the caller, and
 	// we must write an audit log. We already know it's authorized.
-	if err := db.checkAndLog(caller, acl.ActionGet, name, 0); err != nil {
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, 0); err != nil {
 		return nil, err
 	}
 	return sv, nil
@@ -218,12 +280,11 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 
 // GetVersion returns a secret's value at a specific version.
 func (db *DB) GetVersion(caller Caller, name string, version api.SecretVersion) (*api.SecretValue, error) {
-	if err := db.checkAndLog(caller, acl.ActionGet, name, version); err != nil {
-		return nil, err
-	}
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionGet, name, version); err != nil {
+		return nil, err
+	}
 	return db.kv.getVersion(name, version)
 }
 
@@ -235,12 +296,12 @@ func (db *DB) Put(caller Caller, name string, value []byte) (api.SecretVersion, 
 	if name == "" {
 		return 0, errors.New("empty secret name")
 	}
-	if err := db.checkAndLog(caller, acl.ActionPut, name, 0); err != nil {
-		return 0, err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionPut, name, 0); err != nil {
+		return 0, err
+	}
 	if strings.HasPrefix(name, configPrefix) {
 		return db.putConfigLocked(name, value)
 	}
@@ -269,12 +330,12 @@ func (db *DB) CreateVersion(caller Caller, name string, version api.SecretVersio
 	if version <= 0 {
 		return ErrInvalidVersion
 	}
-	if err := db.checkAndLog(caller, acl.ActionCreateVersion, name, version); err != nil {
-		return err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionCreateVersion, name, version); err != nil {
+		return err
+	}
 	return db.kv.createVersion(name, version, value)
 }
 
@@ -283,12 +344,12 @@ func (db *DB) Activate(caller Caller, name string, version api.SecretVersion) er
 	if name == "" {
 		return errors.New("empty secret name")
 	}
-	if err := db.checkAndLog(caller, acl.ActionActivate, name, version); err != nil {
-		return err
-	}
 
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionActivate, name, version); err != nil {
+		return err
+	}
 	if strings.HasPrefix(name, configPrefix) {
 		return db.activateConfigLocked(name, version)
 	}
@@ -305,12 +366,12 @@ func (db *DB) activateConfigLocked(name string, version api.SecretVersion) error
 // DeleteVersion deletes the specified version of a secret.
 // It reports an error without change if version is the active version.
 func (db *DB) DeleteVersion(caller Caller, name string, version api.SecretVersion) error {
-	if err := db.checkAndLog(caller, acl.ActionDelete, name, version); err != nil {
-		return err
-	}
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
+
+	if err := db.checkAndLogLocked(caller, acl.ActionDelete, name, version); err != nil {
+		return err
+	}
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
 		return db.deleteConfigVersionLocked(cfg, version)
 	}
@@ -325,12 +386,11 @@ func (db *DB) deleteConfigVersionLocked(name string, version api.SecretVersion) 
 // not exist, this is a no-op without error, provided the caller has access to
 // delete things at all.
 func (db *DB) Delete(caller Caller, name string) error {
-	if err := db.checkAndLog(caller, acl.ActionDelete, name, 0); err != nil {
-		return err
-	}
-
 	db.mu.Lock()
 	defer db.mu.Unlock()
+	if err := db.checkAndLogLocked(caller, acl.ActionDelete, name, 0); err != nil {
+		return err
+	}
 	if cfg, ok := strings.CutPrefix(name, configPrefix); ok {
 		return db.deleteConfigLocked(cfg)
 	}
@@ -339,4 +399,13 @@ func (db *DB) Delete(caller Caller, name string) error {
 
 func (db *DB) deleteConfigLocked(name string) error {
 	return fmt.Errorf("unknown config value %q", name)
+}
+
+// AccessIndex is an index mapping secret names to last-access records.
+type AccessIndex map[string]LastAccess
+
+// LastAccess is an entry in an [AccessIndex], recording information about the
+// most recent access to a given secret.
+type LastAccess struct {
+	Time time.Time // in UTC
 }
