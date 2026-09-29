@@ -183,6 +183,8 @@ func (s *Server) Metrics() expvar.Var {
 	m.Set("counter_api_bad_request", s.countCallBadRequest)
 	m.Set("counter_api_forbidden", s.countCallForbidden)
 	m.Set("counter_api_internal_error", s.countCallInternalError)
+	m.Set("counter_api_not_found", s.countCallNotFound)
+	m.Set("counter_api_already_set", s.countCallAlreadySet)
 	return m
 }
 

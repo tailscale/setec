@@ -163,3 +163,36 @@ func TestServerStatus(t *testing.T) {
 		t.Errorf("DeleteVersion %v: unexpected error %v", ov2, err)
 	}
 }
+
+func TestServerMetrics(t *testing.T) {
+	d := setectest.NewDB(t, nil)
+	v1 := d.MustPut(d.Superuser, "test", "v1")
+
+	ss := setectest.NewServer(t, d, nil)
+	hs := httptest.NewServer(ss.Mux)
+	defer hs.Close()
+
+	ctx := t.Context()
+	cli := setec.Client{Server: hs.URL, DoHTTP: hs.Client().Do}
+
+	if sv, err := cli.GetVersion(ctx, "test", v1+1); !errors.Is(err, api.ErrNotFound) {
+		t.Fatalf("GetVersion %v: got (%v, %v), want error %v", v1+1, sv, err, api.ErrNotFound)
+	}
+	if err := cli.CreateVersion(ctx, "test", v1, []byte("again")); err == nil {
+		t.Fatalf("CreateVersion %v: unexpected success", v1)
+	}
+
+	var got map[string]map[string]int
+	if err := json.Unmarshal([]byte(ss.Actual.Metrics().String()), &got); err != nil {
+		t.Fatalf("Decode metrics: %v", err)
+	}
+	for _, tc := range []struct{ metric, method string }{
+		{"counter_api_calls", "/api/get"},
+		{"counter_api_not_found", "/api/get"},
+		{"counter_api_already_set", "/api/create-version"},
+	} {
+		if n := got[tc.metric][tc.method]; n != 1 {
+			t.Errorf("Metric %s[%s]: got %d, want 1", tc.metric, tc.method, n)
+		}
+	}
+}
