@@ -229,6 +229,15 @@ func (c Client) Info(ctx context.Context, name string) (*api.SecretInfo, error) 
 	})
 }
 
+// SetInfo updates metadata for the given secret name.
+func (c Client) SetInfo(ctx context.Context, name string, update api.SecretInfoUpdate) error {
+	_, err := do[struct{}](ctx, c, "/api/set-info", api.SetInfoRequest{
+		Name:             name,
+		SecretInfoUpdate: update,
+	})
+	return err
+}
+
 // Put creates a secret called name, with the given value. If a secret called
 // name already exist, the value is saved as a new inactive version.
 //
