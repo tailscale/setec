@@ -256,7 +256,7 @@ func (db *DB) GetConditional(caller Caller, name string, oldVersion api.SecretVe
 		return nil, err
 	} else if sv.Version == oldVersion {
 		// As noted above, we usually do not audit log conditional fetches for
-		// unchnaged values. However, we do want to update the timestamp
+		// unchanged values. However, we do want to update the timestamp
 		// occasionally, since conditional access still denotes "interest" in the
 		// secret.  Therefore, we will write a log if it has been "a while", even
 		// if the value is the same.
