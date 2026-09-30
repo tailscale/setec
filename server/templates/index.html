@@ -9,7 +9,7 @@
 
     <h1>Secrets List</h1>
     <table>
-        <tr><th>Name</th><th>Versions</th></tr>
+        <tr><th>Name</th><th>Versions</th><th>Last Accessed</th></tr>
         {{- range $info := .}}
         <tr>
             <td>{{$info.Name}}</td>
@@ -25,6 +25,11 @@
                 {{- if (not (lastSecretVersion $i $info.Versions)) }}, {{ end -}}
 
                 {{- end}}
+            </td>
+            <td>
+              {{with $info.LastAccess}}
+                {{- timeFormat . "2006-01-02T15:04:05Z"}}
+              {{- else}}(unknown){{end}}
             </td>
         </tr>
         {{- end}}

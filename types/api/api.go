@@ -8,6 +8,7 @@ package api
 import (
 	"errors"
 	"strconv"
+	"time"
 )
 
 var (
@@ -63,6 +64,10 @@ type SecretInfo struct {
 	Name          string
 	Versions      []SecretVersion
 	ActiveVersion SecretVersion
+
+	// If known, the last time in UTC when the secret was accessed for any
+	// operation other than "info", otherwise zero.
+	LastAccess time.Time `json:",omitzero"`
 }
 
 // ListRequest is a request to list secrets.
