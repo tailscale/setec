@@ -23,6 +23,10 @@ func TestACL(t *testing.T) {
 			Action: []acl.Action{acl.ActionDelete},
 			Secret: []acl.Secret{"dev/*"},
 		},
+		acl.Rule{
+			Action: []acl.Action{acl.ActionGet, acl.ActionSetInfo},
+			Secret: []acl.Secret{"special/*/magic"},
+		},
 	}
 
 	type testCase struct {
@@ -73,6 +77,12 @@ func TestACL(t *testing.T) {
 		deny("delete", "control/bar"),
 		deny("delete", "something/else"),
 		deny("delete", "dev"),
+
+		allow("get", "special/foo/magic"),
+		deny("get", "special/foo/more-magic"),
+		allow("set-info", "special/bar/magic"),
+		deny("set-info", "special/bar/more-magic"),
+		deny("set-info", "some/other/nonsense"),
 	}
 
 	for _, test := range tests {
