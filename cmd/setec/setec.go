@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"expvar"
 	"fmt"
@@ -192,6 +193,7 @@ var serverArgs struct {
 
 var clientArgs struct {
 	Server string `flag:"s,default=$SETEC_SERVER,Server address"`
+	JSON   bool   `flag:"json,Write output in JSON format"`
 }
 
 func runServer(env *command.Env) error {
@@ -361,6 +363,13 @@ func runList(env *command.Env) error {
 	if err != nil {
 		return fmt.Errorf("failed to list secrets: %v", err)
 	}
+	if clientArgs.JSON {
+		enc := json.NewEncoder(os.Stdout)
+		for _, s := range secrets {
+			enc.Encode(s)
+		}
+		return nil
+	}
 
 	tw := newTabWriter(os.Stdout)
 	io.WriteString(tw, "NAME\tACTIVE\tVERSIONS\tLAST ACCESSED\n")
@@ -373,9 +382,22 @@ func runList(env *command.Env) error {
 		if !s.LastAccess.IsZero() {
 			lastAccess = s.LastAccess.Format(time.RFC3339)
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.ActiveVersion, strings.Join(vers, ","), lastAccess)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.ActiveVersion, formatVersions(vers), lastAccess)
 	}
 	return tw.Flush()
+}
+
+func formatVersions(vs []string) string {
+	i, n := len(vs)-1, 0
+	for i > 0 && n < 50 {
+		n += len(vs[i]) + 1
+		i--
+	}
+	s := strings.Join(vs[i:], ",")
+	if i > 0 {
+		return "...," + s
+	}
+	return s
 }
 
 func runInfo(env *command.Env, name string) error {
@@ -387,6 +409,9 @@ func runInfo(env *command.Env, name string) error {
 	info, err := c.Info(env.Context(), name)
 	if err != nil {
 		return fmt.Errorf("failed to get secret info: %v", err)
+	}
+	if clientArgs.JSON {
+		return json.NewEncoder(os.Stdout).Encode(info)
 	}
 	vers := make([]string, 0, len(info.Versions))
 	for _, v := range info.Versions {
@@ -423,6 +448,10 @@ func runGet(env *command.Env, name string) error {
 	}
 	if err != nil {
 		return fmt.Errorf("failed to get secret: %v", err)
+	}
+
+	if clientArgs.JSON {
+		return json.NewEncoder(os.Stdout).Encode(val)
 	}
 
 	// Print with a newline if a human's going to look at it,
