@@ -108,6 +108,20 @@ The service defines named _actions_ that are subject to access control:
   {"Name":"example","Versions":[1,2,3],"ActiveVersion":2}
   ```
 
+- `/api/set-info`: Set metadata for a single secret.
+
+  **Requires:** `set-info` permission for the specified secret.
+
+  **Request:** `api.SetInfoRequest`
+
+  **Example request:**
+  ``json
+  {"Name":"example","Description":"a demonstration secret, not used in production"}`
+  ```
+
+  **Constraints:** The value of the *Description* field must be valid UTF-8 and may
+  not exceed 1000 bytes in length.
+
 - `/api/put`: Add a new value for a secret.
 
   **Requires:** `put` permission for the specified name.
