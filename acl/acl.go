@@ -23,6 +23,11 @@ const (
 	// secret values.
 	ActionInfo = Action("info")
 
+	// ActionSetInfo ("set-info" in the API) denotes permission to write the
+	// metadata for a secret, including the human-readable description, but not
+	// the secret values.
+	ActionSetInfo = Action("set-info")
+
 	// ActionPut ("put" in the API) denotes permission to put a new value of a
 	// secret.
 	ActionPut = Action("put")

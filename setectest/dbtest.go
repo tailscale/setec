@@ -30,7 +30,8 @@ func superuser() db.Caller {
 		Permissions: acl.Rules{
 			acl.Rule{
 				Action: []acl.Action{
-					acl.ActionGet, acl.ActionInfo, acl.ActionPut, acl.ActionCreateVersion, acl.ActionActivate, acl.ActionDelete,
+					acl.ActionGet, acl.ActionInfo, acl.ActionSetInfo, acl.ActionPut,
+					acl.ActionCreateVersion, acl.ActionActivate, acl.ActionDelete,
 				},
 				Secret: []acl.Secret{"*"},
 			},
@@ -148,5 +149,14 @@ func (db *DB) MustCreateVersion(caller db.Caller, name string, version api.Secre
 
 	if err := db.Actual.CreateVersion(caller, name, version, []byte(value)); err != nil {
 		db.t.Fatalf("CreateVersion %v of %q failed: %v", version, name, err)
+	}
+}
+
+// MustSetInfo updates the metadata for the named secret or fails.
+func (db *DB) MustSetInfo(caller db.Caller, name string, update api.SecretInfoUpdate) {
+	db.t.Helper()
+
+	if err := db.Actual.SetInfo(caller, name, update); err != nil {
+		db.t.Fatalf("SetInfo %q to %+v failed: %v", name, update, err)
 	}
 }

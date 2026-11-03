@@ -165,6 +165,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cfg.Mux.HandleFunc("/api/list", ret.list)
 	cfg.Mux.HandleFunc("/api/get", ret.get)
 	cfg.Mux.HandleFunc("/api/info", ret.info)
+	cfg.Mux.HandleFunc("/api/set-info", ret.setInfo)
 	cfg.Mux.HandleFunc("/api/put", ret.put)
 	cfg.Mux.HandleFunc("/api/create-version", ret.createVersion)
 	cfg.Mux.HandleFunc("/api/activate", ret.activate)
@@ -258,6 +259,13 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 func (s *Server) info(w http.ResponseWriter, r *http.Request) {
 	serveJSON(s, w, r, func(req api.InfoRequest, id db.Caller) (*api.SecretInfo, error) {
 		return s.db.Info(id, req.Name)
+	})
+}
+
+func (s *Server) setInfo(w http.ResponseWriter, r *http.Request) {
+	serveJSON(s, w, r, func(req api.SetInfoRequest, id db.Caller) (struct{}, error) {
+		err := s.db.SetInfo(id, req.Name, req.SecretInfoUpdate)
+		return struct{}{}, err
 	})
 }
 
@@ -409,6 +417,10 @@ func serveJSON[REQ any, RESP any](s *Server, w http.ResponseWriter, r *http.Requ
 	} else if errors.Is(err, db.ErrVersionClaimed) {
 		s.countCallAlreadySet.Add(apiMethod, 1)
 		http.Error(w, "version already set", http.StatusPreconditionFailed)
+		return
+	} else if errors.Is(err, db.ErrInvalidParams) {
+		s.countCallBadRequest.Add(apiMethod, 1)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	} else if err != nil {
 		s.countCallInternalError.Add(apiMethod, 1)

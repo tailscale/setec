@@ -9,6 +9,8 @@ import (
 	"errors"
 	"strconv"
 	"time"
+
+	"tailscale.com/types/opt"
 )
 
 var (
@@ -68,6 +70,9 @@ type SecretInfo struct {
 	// If known, the last time in UTC when the secret was accessed for any
 	// operation other than "info", otherwise zero.
 	LastAccess time.Time `json:",omitzero"`
+
+	// An optional human-readable description for the secret.
+	Description string `json:",omitzero"`
 }
 
 // ListRequest is a request to list secrets.
@@ -96,6 +101,28 @@ type GetRequest struct {
 type InfoRequest struct {
 	// Name is the name of the secret whose metadata to return.
 	Name string
+}
+
+// MaxDescriptionBytes is the maximum permitted length of a secret description.
+// Descriptions in excess of this length will be rejected.
+const MaxDescriptionBytes = 1000
+
+// SetInfoRequest is a request to update secret metadata.
+type SetInfoRequest struct {
+	// Name is the name of the secret whose metadata should be updated.
+	Name string
+
+	SecretInfoUpdate `json:",inline"`
+}
+
+// SecretInfoUpdate describes metadata fields of a secret that should be
+// updated to new values. Each field is optional: If a field of the update is
+// set, its corresponding value in the secret is updated; otherwise the value
+// stored with the secret preserved as-stored.
+type SecretInfoUpdate struct {
+	// Description, if set, is a human-readable text description to apply.
+	// The value, if set, must be valid UTF-8 and not exceed [MaxDescriptionBytes].
+	Description opt.Value[string] `json:",omitzero"`
 }
 
 // PutRequest is a request to write a secret value.
